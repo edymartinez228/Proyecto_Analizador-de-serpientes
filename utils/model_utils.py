@@ -138,15 +138,14 @@ def load_presence_model(weights_path: str) -> nn.Module:
     """Carga el modelo binario de presencia (Snake vs Non-Snake)."""
     model = _build_efficientnet(num_classes=2)
     
-    # Mapeo explicito a CPU sin parametros conflictivos de PyTorch
-    checkpoint = torch.load(weights_path, map_location=torch.device('cpu'))
+    # Agregamos weights_only=False explícitamente para PyTorch 2.6+
+    checkpoint = torch.load(weights_path, map_location=torch.device('cpu'), weights_only=False)
     
     if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
         state_dict = checkpoint['model_state_dict']
     elif isinstance(checkpoint, dict):
         state_dict = checkpoint
     else:
-        # Si guardaste el modelo completo directamente
         checkpoint.to(DEVICE).eval()
         return checkpoint
 
@@ -159,15 +158,14 @@ def load_species_model(weights_path: str, num_classes: int = 80) -> nn.Module:
     """Carga el modelo multiclase de especie."""
     model = models.efficientnet_b0(weights=None)
     
-    # Mapeo explicito a CPU
-    checkpoint = torch.load(weights_path, map_location=torch.device('cpu'))
+    # Agregamos weights_only=False explícitamente para PyTorch 2.6+
+    checkpoint = torch.load(weights_path, map_location=torch.device('cpu'), weights_only=False)
     
     if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
         state_dict = checkpoint['model_state_dict']
     elif isinstance(checkpoint, dict):
         state_dict = checkpoint
     else:
-        # Si guardaste el modelo completo directamente
         checkpoint.to(DEVICE).eval()
         return checkpoint
 
