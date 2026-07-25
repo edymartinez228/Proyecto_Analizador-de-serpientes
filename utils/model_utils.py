@@ -93,17 +93,24 @@ def load_species_model(weights_path, num_classes=80):
 
 
 def load_venom_model(model_path):
-    # Si la ruta apunta a .h5 pero existe el .keras, preferir .keras
-    if model_path.endswith(".h5"):
-        keras_path = model_path.replace(".h5", ".keras")
-        if os.path.exists(keras_path):
-            model_path = keras_path
+    # 1. Verificar si el archivo realmente existe en el sistema de archivos de Streamlit
+    if not os.path.exists(model_path):
+        # Si no existe con .keras, probar alternativamente
+        alt_path = model_path.replace(".h5", ".keras") if model_path.endswith(".h5") else model_path.replace(".keras", ".h5")
+        if os.path.exists(alt_path):
+            model_path = alt_path
+        else:
+            raise FileNotFoundError(f"❌ El archivo del modelo no existe en la ruta: {model_path}")
 
+    # 2. Intentar cargar el modelo con Keras
     try:
-        # Carga nativa de Keras 3
         return tf.keras.models.load_model(model_path, compile=False)
     except Exception as e:
-        raise RuntimeError(f"Error al cargar el modelo de veneno desde {model_path}: {e}")
+        # Intentar fallback con safe_mode=False por si acaso
+        try:
+            return tf.keras.models.load_model(model_path, compile=False, safe_mode=False)
+        except Exception as e2:
+            raise RuntimeError(f"Error cargando {model_path} -> Detalle Keras: {e2}")
 
 
 def load_class_names(json_path):
