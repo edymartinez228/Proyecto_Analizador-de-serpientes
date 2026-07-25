@@ -32,17 +32,17 @@ st.markdown("""
 
 @st.cache_resource
 def get_presence_model():
+    # Solo buscar extensiones válidas de PyTorch (.pth / .pt)
     paths = [
-        "models/modelo_presencia.keras",
-        "models/modelo_presencia.weights.h5",
-        "models/modelo_presencia.h5",
-        "models/modelo_veneno.weights.h5"  # Fallback si compartes arquitectura/pesos base
+        "models/modelo_presencia.pth",
+        "models/modelo_presencia.pt",
+        "models/modelo_presencia_efficientnet.pth"
     ]
     selected_path = next((p for p in paths if os.path.exists(p)), None)
     
     if not selected_path:
         existing = os.listdir("models") if os.path.exists("models") else "Carpeta 'models' no encontrada"
-        raise FileNotFoundError(f"❌ No se encontró el modelo de presencia. Archivos disponibles en 'models/': {existing}")
+        raise FileNotFoundError(f"❌ No se encontró el modelo PyTorch de presencia (.pth/.pt). Archivos disponibles en 'models/': {existing}")
         
     return load_presence_model(selected_path)
 
@@ -59,16 +59,17 @@ def get_venom_model():
 
 @st.cache_resource
 def get_species_model():
+    # Solo buscar extensiones válidas de PyTorch (.pth / .pt)
     paths = [
-        "models/modelo_especie.keras",
-        "models/modelo_especie.weights.h5",
-        "models/modelo_especie.h5"
+        "models/modelo_especie.pth",
+        "models/modelo_especie.pt",
+        "models/modelo_especie_efficientnet.pth"
     ]
     selected_path = next((p for p in paths if os.path.exists(p)), None)
     
     if not selected_path:
         existing = os.listdir("models") if os.path.exists("models") else "Carpeta 'models' no encontrada"
-        raise FileNotFoundError(f"❌ No se encontró el modelo de especies. Archivos disponibles en 'models/': {existing}")
+        raise FileNotFoundError(f"❌ No se encontró el modelo PyTorch de especies (.pth/.pt). Archivos disponibles en 'models/': {existing}")
         
     return load_species_model(selected_path)
 
