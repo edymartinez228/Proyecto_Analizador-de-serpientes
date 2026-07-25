@@ -1,21 +1,10 @@
-# --- requirements.txt ---
-# Índice adicional para obtener builds CPU-only de PyTorch (mucho más livianas,
-# importante para respetar el límite de memoria/tamaño de Streamlit Cloud).
---extra-index-url https://download.pytorch.org/whl/cpu
-
-streamlit==1.37.0
-
-# PyTorch (modelos de presencia y especie)
-torch==2.3.1+cpu
-torchvision==0.18.1+cpu
-
-# TensorFlow (modelo de veneno .h5) — versión CPU para reducir tamaño de imagen
-tensorflow-cpu==2.16.1
-
-# Procesamiento de imágenes
-opencv-python-headless==4.10.0.84
-albumentations==1.4.13
-Pillow==10.4.0
-
-# Utilitario numérico
-numpy==1.26.4
+streamlit
+torch
+torchvision
+opencv-python-headless
+albumentations==1.4.0
+albucore
+tensorflow-cpu==2.15.0
+tf-keras==2.15.0
+numpy
+pillow
