@@ -92,13 +92,27 @@ def load_species_model(weights_path, num_classes=80):
 
 
 def load_venom_model(weights_path):
-    # safe_mode=False permite cargar capas personalizadas o arquitecturas de Keras 2/3
+    # 1. Configurar variable de entorno para forzar el comportamiento legacy/Keras 2
+    os.environ["TF_USE_LEGACY_KERAS"] = "1"
+    
     try:
-        return tf.keras.models.load_model(weights_path, compile=False, safe_mode=False)
+        # Intento A: Carga estándar de Keras desactivando la compilación
+        return tf.keras.models.load_model(weights_path, compile=False)
     except Exception:
-        # Fallback si usas tf_keras de compatibilidad
-        import tf_keras
-        return tf_keras.models.load_model(weights_path, compile=False)
+        try:
+            # Intento B: Carga forzada con el motor legacy de tf_keras
+            import tf_keras
+            return tf_keras.models.load_model(
+                weights_path, 
+                compile=False, 
+                custom_objects=None
+            )
+        except Exception:
+            # Intento C: Deserialización directa mediante h5py (Fallback final)
+            from tensorflow.python.keras.saving import hdf5_format
+            import h5py
+            with h5py.File(weights_path, mode='r') as f:
+                return hdf5_format.load_model_from_hdf5(f, compile=False)
 
 
 def load_class_names(json_path: str) -> dict:
