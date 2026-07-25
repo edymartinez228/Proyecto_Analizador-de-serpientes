@@ -91,9 +91,14 @@ def load_species_model(weights_path, num_classes=80):
     return model
 
 
-def load_venom_model(weights_path: str):
-    """Carga el modelo Keras/TensorFlow (.h5) de clasificación de veneno."""
-    return tf.keras.models.load_model(weights_path, compile=False)
+def load_venom_model(weights_path):
+    # safe_mode=False permite cargar capas personalizadas o arquitecturas de Keras 2/3
+    try:
+        return tf.keras.models.load_model(weights_path, compile=False, safe_mode=False)
+    except Exception:
+        # Fallback si usas tf_keras de compatibilidad
+        import tf_keras
+        return tf_keras.models.load_model(weights_path, compile=False)
 
 
 def load_class_names(json_path: str) -> dict:
