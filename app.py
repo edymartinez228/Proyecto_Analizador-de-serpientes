@@ -25,7 +25,7 @@ st.markdown("""
     <style>
         [data-testid="collapsedControl"] { display: none; }
     </style>
-""", unsafe_allow_callbacks=True)
+""", unsafe_allow_html=True)
 
 # --- CARGA DE MODELOS CON CACHÉ ---
 @st.cache_resource
