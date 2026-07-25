@@ -93,7 +93,6 @@ def load_species_model(weights_path, num_classes=80):
 
 
 def load_venom_model(weights_path="models/modelo_veneno.weights.h5"):
-    # Lista de posibles ubicaciones por si la ruta enviada desde app.py varía
     possible_paths = [
         weights_path,
         "models/modelo_veneno.weights.h5",
@@ -107,21 +106,30 @@ def load_venom_model(weights_path="models/modelo_veneno.weights.h5"):
             break
 
     if not actual_path:
-        raise FileNotFoundError(f"❌ No se encontró el archivo de pesos en ninguna de estas rutas: {possible_paths}")
+        raise FileNotFoundError(f"❌ No se encontró el archivo de pesos en ninguna de las rutas intentadas.")
 
     try:
-        # Reconstrucción de la arquitectura
+        # Reconstrucción de la arquitectura exacta de tu Colab (Sequential)
         base_model = tf.keras.applications.MobileNetV2(
             input_shape=(224, 224, 3),
             include_top=False,
             weights=None
         )
-        x = tf.keras.layers.GlobalAveragePooling2D()(base_model.output)
-        outputs = tf.keras.layers.Dense(1, activation='sigmoid')(x)
-        
-        model = tf.keras.models.Model(inputs=base_model.input, outputs=outputs)
+
+        model = tf.keras.Sequential([
+            base_model,
+            tf.keras.layers.GlobalAveragePooling2D(),
+            tf.keras.layers.BatchNormalization(),
+            tf.keras.layers.Dropout(0.5),  # O el valor de dropout que usaste (ej: 0.2, 0.3)
+            tf.keras.layers.Dense(256, activation='relu'),
+            tf.keras.layers.Dropout(0.5),
+            tf.keras.layers.Dense(1, activation='sigmoid')
+        ])
+
+        # Cargar los pesos guardados en el modelo reconstruido
         model.load_weights(actual_path)
         return model
+
     except Exception as e:
         raise RuntimeError(f"Error al cargar las matrices de pesos desde {actual_path}: {e}")
 
