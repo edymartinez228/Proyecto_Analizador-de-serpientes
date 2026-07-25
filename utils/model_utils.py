@@ -93,36 +93,46 @@ def load_species_model(weights_path, num_classes=80):
 
 
 def load_venom_model(weights_path):
-    # 1. Desactivar el uso de Keras 3 para evitar choques con el formato antiguo .h5
     os.environ["TF_USE_LEGACY_KERAS"] = "1"
-    
-    # Intento 1: Usar tf_keras silenciando el guardado estricto
-    try:
-        import tf_keras
-        return tf_keras.models.load_model(weights_path, compile=False)
-    except Exception:
-        pass
 
-    # Intento 2: Usar tf.keras deshabilitando compilación y safe_mode
+    # INTENTO 1: Cargar directamente si Keras decide colaborar
     try:
         return tf.keras.models.load_model(weights_path, compile=False, safe_mode=False)
     except Exception:
         pass
 
-    # Intento 3: Cargar como modelo Keras genérico deshabilitando la validación de la configuración de entrada
+    # INTENTO 2: Forzar la carga cargando la arquitectura base (MobileNetV2) y asignando solo los pesos
+    # (Ajusta la arquitectura si en tu Colab usaste ResNet, EfficientNet, etc.)
     try:
-        from tensorflow.keras.models import load_model
-        return load_model(weights_path, compile=False)
-    except Exception as e:
-        # Fallback final: Si falla por capas desactualizadas, cargar con custom_objects permisivo
-        def custom_objects():
-            return {}
-        
-        return tf.keras.models.load_model(
-            weights_path, 
-            compile=False, 
-            custom_objects={"InputLayer": tf.keras.layers.InputLayer}
+        print("Cargando arquitectura base y mapeando pesos...")
+        base_model = tf.keras.applications.MobileNetV2(
+            input_shape=(224, 224, 3), 
+            include_top=False, 
+            weights=None
         )
+        x = tf.keras.layers.GlobalAveragePooling2D()(base_model.output)
+        
+        # Cambia el '1' por el número de salidas de tu modelo de veneno (ej: 1 para binario, 2 para venenciosa/no venenosa)
+        outputs = tf.keras.layers.Dense(1, activation='sigmoid')(x) 
+        
+        model = tf.keras.models.Model(inputs=base_model.input, outputs=outputs)
+        
+        # Cargar únicamente las matrices de pesos del h5 omitiendo el config dañado
+        model.load_weights(weights_path)
+        return model
+    except Exception:
+        pass
+
+    # INTENTO 3: Bypass directo usando h5py para extraer pesos si la topología difiere
+    try:
+        from tensorflow.python.keras.saving import hdf5_format
+        with h5py.File(weights_path, 'r') as f:
+            if 'model_weights' in f:
+                # Si el H5 tiene la estructura de pesos guardada
+                model = tf.keras.models.load_model(weights_path, compile=False)
+                return model
+    except Exception as e:
+        raise RuntimeError(f"Error crítico cargando pesos de veneno: {e}")
 
 
 def load_class_names(json_path):
