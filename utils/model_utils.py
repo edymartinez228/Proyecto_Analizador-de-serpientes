@@ -92,47 +92,18 @@ def load_species_model(weights_path, num_classes=80):
     return model
 
 
-def load_venom_model(weights_path):
-    os.environ["TF_USE_LEGACY_KERAS"] = "1"
+def load_venom_model(model_path):
+    # Si la ruta apunta a .h5 pero existe el .keras, preferir .keras
+    if model_path.endswith(".h5"):
+        keras_path = model_path.replace(".h5", ".keras")
+        if os.path.exists(keras_path):
+            model_path = keras_path
 
-    # INTENTO 1: Cargar directamente si Keras decide colaborar
     try:
-        return tf.keras.models.load_model(weights_path, compile=False, safe_mode=False)
-    except Exception:
-        pass
-
-    # INTENTO 2: Forzar la carga cargando la arquitectura base (MobileNetV2) y asignando solo los pesos
-    # (Ajusta la arquitectura si en tu Colab usaste ResNet, EfficientNet, etc.)
-    try:
-        print("Cargando arquitectura base y mapeando pesos...")
-        base_model = tf.keras.applications.MobileNetV2(
-            input_shape=(224, 224, 3), 
-            include_top=False, 
-            weights=None
-        )
-        x = tf.keras.layers.GlobalAveragePooling2D()(base_model.output)
-        
-        # Cambia el '1' por el número de salidas de tu modelo de veneno (ej: 1 para binario, 2 para venenciosa/no venenosa)
-        outputs = tf.keras.layers.Dense(1, activation='sigmoid')(x) 
-        
-        model = tf.keras.models.Model(inputs=base_model.input, outputs=outputs)
-        
-        # Cargar únicamente las matrices de pesos del h5 omitiendo el config dañado
-        model.load_weights(weights_path)
-        return model
-    except Exception:
-        pass
-
-    # INTENTO 3: Bypass directo usando h5py para extraer pesos si la topología difiere
-    try:
-        from tensorflow.python.keras.saving import hdf5_format
-        with h5py.File(weights_path, 'r') as f:
-            if 'model_weights' in f:
-                # Si el H5 tiene la estructura de pesos guardada
-                model = tf.keras.models.load_model(weights_path, compile=False)
-                return model
+        # Carga nativa de Keras 3
+        return tf.keras.models.load_model(model_path, compile=False)
     except Exception as e:
-        raise RuntimeError(f"Error crítico cargando pesos de veneno: {e}")
+        raise RuntimeError(f"Error al cargar el modelo de veneno desde {model_path}: {e}")
 
 
 def load_class_names(json_path):
