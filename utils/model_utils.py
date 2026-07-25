@@ -92,25 +92,31 @@ def load_species_model(weights_path, num_classes=80):
     return model
 
 
-def load_venom_model(model_path):
-    # 1. Verificar si el archivo realmente existe en el sistema de archivos de Streamlit
-    if not os.path.exists(model_path):
-        # Si no existe con .keras, probar alternativamente
-        alt_path = model_path.replace(".h5", ".keras") if model_path.endswith(".h5") else model_path.replace(".keras", ".h5")
-        if os.path.exists(alt_path):
-            model_path = alt_path
-        else:
-            raise FileNotFoundError(f"❌ El archivo del modelo no existe en la ruta: {model_path}")
+def load_venom_model(weights_path):
+    # Si la ruta apunta a .keras o .h5 del modelo completo, redirigir al archivo de pesos
+    if not weights_path.endswith("_weights.h5"):
+        weights_path = "models/modelo_veneno_weights.h5"
 
-    # 2. Intentar cargar el modelo con Keras
+    if not os.path.exists(weights_path):
+        raise FileNotFoundError(f"❌ No se encontró el archivo de pesos en: {weights_path}")
+
     try:
-        return tf.keras.models.load_model(model_path, compile=False)
+        # Reconstrucción explicita de la arquitectura base (MobileNetV2 como backbone de ejemplo)
+        base_model = tf.keras.applications.MobileNetV2(
+            input_shape=(224, 224, 3),
+            include_top=False,
+            weights=None
+        )
+        x = tf.keras.layers.GlobalAveragePooling2D()(base_model.output)
+        outputs = tf.keras.layers.Dense(1, activation='sigmoid')(x)  # Ajusta 1 o 2 según tus clases de veneno
+        
+        model = tf.keras.models.Model(inputs=base_model.input, outputs=outputs)
+        
+        # Cargar únicamente las matrices de pesos en la arquitectura recién creada
+        model.load_weights(weights_path)
+        return model
     except Exception as e:
-        # Intentar fallback con safe_mode=False por si acaso
-        try:
-            return tf.keras.models.load_model(model_path, compile=False, safe_mode=False)
-        except Exception as e2:
-            raise RuntimeError(f"Error cargando {model_path} -> Detalle Keras: {e2}")
+        raise RuntimeError(f"Error al cargar los pesos del modelo de veneno: {e}")
 
 
 def load_class_names(json_path):
