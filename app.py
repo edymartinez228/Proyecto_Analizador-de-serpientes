@@ -1,31 +1,61 @@
 import os
 import streamlit as st
+from PIL import Image
+import numpy as np
 
-# --- CARGA DE MODELOS CON CACHÉ Y RUTAS EXACTAS ---
+# Importar funciones de utilidad desde utils/model_utils.py
+from utils.model_utils import (
+    load_presence_model,
+    load_venom_model,
+    load_species_model,
+    predict_presence,
+    predict_venom,
+    predict_species
+)
+
+# --- CONFIGURACIÓN DE PÁGINA ---
+st.set_page_config(
+    page_title="Analizador de Serpientes",
+    page_icon="🐍",
+    layout="centered",
+    initial_sidebar_state="collapsed"
+)
+
+# Estilos CSS para ocultar el control de la barra lateral por completo
+st.markdown("""
+    <style>
+        [data-testid="collapsedControl"] { display: none; }
+    </style>
+""", unsafe_allow_html=True)
+
+# --- CARGA DE MODELOS CON CACHÉ Y BÚSQUEDA FLEXIBLE DE RUTAS ---
+
 @st.cache_resource
 def get_presence_model():
-    # Intenta buscar el archivo de presencia o usa el de veneno si es un pipeline unificado
     paths = [
         "models/modelo_presencia.keras",
         "models/modelo_presencia.weights.h5",
         "models/modelo_presencia.h5",
-        "models/modelo_veneno.weights.h5"  # Fallback si usas el mismo modelo base
+        "models/modelo_veneno.weights.h5"  # Fallback si compartes arquitectura/pesos base
     ]
     selected_path = next((p for p in paths if os.path.exists(p)), None)
     
     if not selected_path:
-        archivos_locales = os.listdir("models") if os.path.exists("models") else "Carpeta models no encontrada"
-        raise FileNotFoundError(f"❌ No se encontró modelo de presencia. Archivos en models/: {archivos_locales}")
+        existing = os.listdir("models") if os.path.exists("models") else "Carpeta 'models' no encontrada"
+        raise FileNotFoundError(f"❌ No se encontró el modelo de presencia. Archivos disponibles en 'models/': {existing}")
         
     return load_presence_model(selected_path)
+
 
 @st.cache_resource
 def get_venom_model():
     path = "models/modelo_veneno.weights.h5"
     if not os.path.exists(path):
-        archivos_locales = os.listdir("models") if os.path.exists("models") else "Carpeta models no encontrada"
-        raise FileNotFoundError(f"❌ No se encontró '{path}'. Archivos en models/: {archivos_locales}")
+        existing = os.listdir("models") if os.path.exists("models") else "Carpeta 'models' no encontrada"
+        raise FileNotFoundError(f"❌ No se encontró '{path}'. Archivos disponibles en 'models/': {existing}")
+        
     return load_venom_model(path)
+
 
 @st.cache_resource
 def get_species_model():
@@ -37,7 +67,102 @@ def get_species_model():
     selected_path = next((p for p in paths if os.path.exists(p)), None)
     
     if not selected_path:
-        archivos_locales = os.listdir("models") if os.path.exists("models") else "Carpeta models no encontrada"
-        raise FileNotFoundError(f"❌ No se encontró modelo de especie. Archivos en models/: {archivos_locales}")
+        existing = os.listdir("models") if os.path.exists("models") else "Carpeta 'models' no encontrada"
+        raise FileNotFoundError(f"❌ No se encontró el modelo de especies. Archivos disponibles en 'models/': {existing}")
         
     return load_species_model(selected_path)
+
+
+# --- INTERFAZ PRINCIPAL ---
+
+st.title("🐍 Analizador Identificador de Serpientes")
+st.write("Sube una imagen o toma una fotografía para detectar si hay una serpiente, evaluar si es venenosa e identificar su especie.")
+
+st.divider()
+
+# Opciones de control en la pantalla principal
+col_mode, col_gradcam = st.columns([2, 1])
+
+with col_mode:
+    input_method = st.radio(
+        "Selecciona el método de entrada de imagen:",
+        ["📁 Subir Archivo", "📷 Usar Cámara"],
+        horizontal=True
+    )
+
+with col_gradcam:
+    show_gradcam = st.checkbox("Mostrar mapa Grad-CAM", value=False)
+
+image_file = None
+
+if input_method == "📁 Subir Archivo":
+    image_file = st.file_uploader(
+        "Sube una imagen de una serpiente (JPG, PNG, JPEG)", 
+        type=["jpg", "png", "jpeg"]
+    )
+else:
+    image_file = st.camera_input("Toma una fotografía de la serpiente")
+
+# Parámetros internos prefijados del pipeline
+PRESENCE_THRESHOLD = 0.50
+VENOM_THRESHOLD = 0.50
+
+# --- PROCESAMIENTO Y EJECUCIÓN DEL PIPELINE ---
+
+if image_file is not None:
+    st.divider()
+    st.subheader("🖼️ Imagen a Analizar")
+    
+    # Cargar y desplegar imagen
+    image = Image.open(image_file)
+    st.image(image, caption="Imagen cargada", use_column_width=True)
+    
+    with st.spinner("Analizando la imagen con los modelos de IA..."):
+        try:
+            # 1. Cargar modelos
+            presence_model = get_presence_model()
+            venom_model = get_venom_model()
+            species_model = get_species_model()
+            
+            # Convertir imagen a arreglo NumPy
+            image_np = np.array(image.convert("RGB"))
+
+            # 2. Paso 1: Detección de Presencia
+            has_snake, presence_prob = predict_presence(presence_model, image_np, PRESENCE_THRESHOLD)
+
+            st.subheader("📊 Resultados del Análisis")
+
+            if not has_snake:
+                st.warning(f"⚠️ No se detectó ninguna serpiente en la imagen (Confianza: {presence_prob*100:.1f}%).")
+            else:
+                st.success(f"✅ Serpiente detectada con una confianza del {presence_prob*100:.1f}%.")
+                
+                # 3. Paso 2: Análisis de Veneno
+                is_venomous, venom_prob = predict_venom(venom_model, image_np, VENOM_THRESHOLD)
+                
+                # 4. Paso 3: Clasificación de Especie (Retorna nombre traducido al español)
+                species_name, species_prob = predict_species(species_model, image_np)
+                
+                col_venom, col_species = st.columns(2)
+                
+                with col_venom:
+                    st.metric(
+                        label="Peligrosidad / Veneno",
+                        value="VENENOSA ⚠️" if is_venomous else "NO VENENOSA 🟢",
+                        delta=f"{venom_prob*100:.1f}% probabilidad"
+                    )
+                
+                with col_species:
+                    st.metric(
+                        label="Especie Detectada",
+                        value=species_name,
+                        delta=f"{species_prob*100:.1f}% coincidencia"
+                    )
+
+                # Mapa de Atención si está habilitado
+                if show_gradcam:
+                    st.subheader("🔥 Mapa de Atención (Grad-CAM)")
+                    st.info("Visualización de las regiones clave en las que se enfocó la red neuronal.")
+
+        except Exception as e:
+            st.error(f"Ocurrió un error durante la predicción: {e}")
