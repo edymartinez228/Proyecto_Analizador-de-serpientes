@@ -38,7 +38,7 @@ def get_venom_model():
 
 @st.cache_resource
 def get_species_model():
-    return load_species_model("models/modelo_especie.h5")
+    return load_species_model("models/modelo_veneno.weights.h5")
 
 # --- INTERFAZ PRINCIPAL ---
 st.title("🐍 Analizador Identificador de Serpientes")
