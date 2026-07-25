@@ -69,12 +69,25 @@ def load_presence_model(weights_path: str) -> nn.Module:
     return model
 
 
-def load_species_model(weights_path: str, num_classes: int) -> nn.Module:
-    """Carga el modelo multi-clase de especies."""
-    model = _build_efficientnet(num_classes=num_classes)
+def load_species_model(weights_path, num_classes=80):
+    # 1. Instanciar EfficientNet-B0
+    model = models.efficientnet_b0(weights=None)
+    
+    # 2. Cargar los pesos guardados
     state_dict = torch.load(weights_path, map_location=DEVICE)
-    model.load_state_dict(state_dict, strict=False)
-    model.to(DEVICE).eval()
+    
+    # 3. Detectar dinámicamente la cantidad de clases en el checkpoint (80)
+    checkpoint_num_classes = state_dict['classifier.1.weight'].shape[0]
+    
+    # 4. Ajustar la capa lineal a las clases del checkpoint
+    in_features = model.classifier[1].in_features
+    model.classifier[1] = nn.Linear(in_features, checkpoint_num_classes)
+    
+    # 5. Cargar el state_dict sin errores
+    model.load_state_dict(state_dict)
+    
+    model.to(DEVICE)
+    model.eval()
     return model
 
 
