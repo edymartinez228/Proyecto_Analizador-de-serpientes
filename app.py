@@ -34,7 +34,7 @@ st.markdown("""
 def get_presence_model():
     # Solo buscar extensiones válidas de PyTorch (.pth / .pt)
     paths = [
-        "models/modelo_presencia.pth",
+        "models/modelo_serpiente.pth",
         "models/modelo_presencia.pt",
         "models/modelo_presencia_efficientnet.pth"
     ]
