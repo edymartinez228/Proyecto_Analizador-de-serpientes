@@ -116,17 +116,19 @@ def load_venom_model(weights_path):
                 return hdf5_format.load_model_from_hdf5(f, compile=False)
 
 
-def load_class_names(json_path: str) -> dict:
-    """Carga el mapeo {indice: nombre_especie} exportado durante el entrenamiento.
-
-    Genera este archivo en tu notebook de entrenamiento con, por ejemplo:
-        import json
-        with open("class_names.json", "w", encoding="utf-8") as f:
-            json.dump(idx_to_label, f, ensure_ascii=False, indent=2)
-    """
+def load_class_names(json_path):
     with open(json_path, "r", encoding="utf-8") as f:
         raw = json.load(f)
-    return {int(k): v for k, v in raw.items()}
+    
+    # Si el JSON es una lista ["Abaco...", "Amazon..."]
+    if isinstance(raw, list):
+        return raw
+    
+    # Si el JSON es un diccionario {"0": "Abaco...", "1": "Amazon..."}
+    if isinstance(raw, dict):
+        return [raw[str(i)] if str(i) in raw else raw[i] for i in range(len(raw))]
+        
+    return raw
 
 
 # ---------------------------------------------------------------------------
