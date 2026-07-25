@@ -42,9 +42,9 @@ st.set_page_config(
 MODELS_DIR = os.path.join(os.path.dirname(__file__), "models")
 ASSETS_DIR = os.path.join(os.path.dirname(__file__), "assets")
 
-PRESENCE_MODEL_PATH = os.path.join(MODELS_DIR, "best_presence_model.pth")
-SPECIES_MODEL_PATH = os.path.join(MODELS_DIR, "best_species_model.pth")
-VENOM_MODEL_PATH = os.path.join(MODELS_DIR, "venomous_snake_model.h5")
+PRESENCE_MODEL_PATH = os.path.join(MODELS_DIR, "modelo_serpiente.pth")
+SPECIES_MODEL_PATH = os.path.join(MODELS_DIR, "modelo_especie.pth")
+VENOM_MODEL_PATH = os.path.join(MODELS_DIR, "modelo_veneno.h5")
 CLASS_NAMES_PATH = os.path.join(ASSETS_DIR, "class_names.json")
 
 PRESENCE_THRESHOLD_DEFAULT = 0.60
