@@ -92,31 +92,38 @@ def load_species_model(weights_path, num_classes=80):
     return model
 
 
-def load_venom_model(weights_path):
-    # Si la ruta apunta a .keras o .h5 del modelo completo, redirigir al archivo de pesos
-    if not weights_path.endswith("_weights.h5"):
-        weights_path = "models/modelo_veneno_weights.h5"
+def load_venom_model(weights_path="models/modelo_veneno.weights.h5"):
+    # Lista de posibles ubicaciones por si la ruta enviada desde app.py varía
+    possible_paths = [
+        weights_path,
+        "models/modelo_veneno.weights.h5",
+        os.path.join(os.path.dirname(__file__), "..", "models", "modelo_veneno.weights.h5")
+    ]
+    
+    actual_path = None
+    for p in possible_paths:
+        if os.path.exists(p):
+            actual_path = p
+            break
 
-    if not os.path.exists(weights_path):
-        raise FileNotFoundError(f"❌ No se encontró el archivo de pesos en: {weights_path}")
+    if not actual_path:
+        raise FileNotFoundError(f"❌ No se encontró el archivo de pesos en ninguna de estas rutas: {possible_paths}")
 
     try:
-        # Reconstrucción explicita de la arquitectura base (MobileNetV2 como backbone de ejemplo)
+        # Reconstrucción de la arquitectura
         base_model = tf.keras.applications.MobileNetV2(
             input_shape=(224, 224, 3),
             include_top=False,
             weights=None
         )
         x = tf.keras.layers.GlobalAveragePooling2D()(base_model.output)
-        outputs = tf.keras.layers.Dense(1, activation='sigmoid')(x)  # Ajusta 1 o 2 según tus clases de veneno
+        outputs = tf.keras.layers.Dense(1, activation='sigmoid')(x)
         
         model = tf.keras.models.Model(inputs=base_model.input, outputs=outputs)
-        
-        # Cargar únicamente las matrices de pesos en la arquitectura recién creada
-        model.load_weights(weights_path)
+        model.load_weights(actual_path)
         return model
     except Exception as e:
-        raise RuntimeError(f"Error al cargar los pesos del modelo de veneno: {e}")
+        raise RuntimeError(f"Error al cargar las matrices de pesos desde {actual_path}: {e}")
 
 
 def load_class_names(json_path):
