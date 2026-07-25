@@ -45,6 +45,111 @@ _eval_transform = A.Compose(
     ]
 )
 
+# Diccionario de traducción inglés -> español para las 80 clases del modelo
+TRADUCCION_ESPECIES = {
+    "Abaco island boa": "Boa de la Isla Ábaco",
+    "Amazon tree boa": "Boa arborícola del Amazonas",
+    "Andaman cat snake": "Serpiente gato de Andamán",
+    "Andaman cobra": "Cobra de Andamán",
+    "Arabian cobra": "Cobra arábiga",
+    "Arizona Coral snake": "Coral de Arizona",
+    "Asian cobra": "Cobra asiática",
+    "Australian tiger snake": "Serpiente tigre australiana",
+    "Ball python": "Pitón bola",
+    "Banded Krait": "Krait bandeado",
+    "Banded cat eyed snake": "Serpiente ojo de gato bandeada",
+    "Banded water cobra": "Cobra de agua bandeada",
+    "Beddome cat snake": "Serpiente gato de Beddome",
+    "Black headed Python": "Pitón de cabeza negra",
+    "Black necked spitting cobra": "Cobra escupidora de cuello negro",
+    "Black racer snake": "Corredora negra",
+    "Black rat snake": "Serpiente ratonera negra",
+    "Black snake": "Serpiente negra",
+    "Black tree cobra": "Cobra arborícola negra",
+    "Boa constrictor": "Boa constrictor / Mazacuata",
+    "Boiga": "Boiga / Serpiente gato",
+    "Boomslang": "Boomslang / Serpiente del árbol",
+    "Brahminy blind snake": "Serpiente ciega de Brahminy",
+    "Brazilian coral snake": "Coral brasilera",
+    "Bull snake": "Serpiente toro",
+    "Canebrake": "Cascabel de los cañaverales (Canebrake)",
+    "Cantil": "Cantil / Mokasin",
+    "Cape cobra": "Cobra del Cabo",
+    "Caspian cobra": "Cobra del Caspio",
+    "Collett snake": "Serpiente de Collett",
+    "Dekay Brown snake": "Serpiente marrón de DeKay",
+    "Dumeril Blackheaded snake": "Serpiente de cabeza negra de Duméril",
+    "Eastern Brown Snake": "Serpiente marrón oriental",
+    "Emerald boa": "Boa esmeralda",
+    "Equatorial spitting cobra": "Cobra escupidora ecuatorial",
+    "Eqyptian cobra": "Cobra egipcia",
+    "Eyelash viper": "Víbora de pestañas / Culebra de pestaña",
+    "False cobra": "Falsa cobra",
+    "False coral snake": "Falsa coral",
+    "Fierce snake": "Taipán del interior / Serpiente feroz",
+    "Forest cobra": "Cobra del bosque",
+    "Forsten cat snake": "Serpiente gato de Forsten",
+    "Gold ringed cat snake": "Serpiente gato de anillos dorados",
+    "Green cat eyed snake": "Serpiente ojo de gato verde",
+    "Grey cat snake": "Serpiente gato gris",
+    "Harlequin coral snake": "Coral arlequín",
+    "Hog island boa": "Boa de Hog Island",
+    "Indian cobra": "Cobra india / Cobra de anteojos",
+    "Indian egg eater": "Comedora de huevos india",
+    "Jamaican boa": "Boa de Jamaica",
+    "Javan spitting cobra": "Cobra escupidora de Java",
+    "King cobra": "Cobra real",
+    "Madagascar tree boa": "Boa arborícola de Madagascar",
+    "Malayan blue coral snake": "Coral azul de Malasia",
+    "Monocled cobra": "Cobra de monóculo",
+    "Mozambique cobra": "Cobra de Mozambique",
+    "Nicobar cat snake": "Serpiente gato de Nicobar",
+    "Puerto rican boa": "Boa de Puerto Rico",
+    "Rainbow boa": "Boa arcoíris",
+    "Red spitting cobra": "Cobra escupidora roja",
+    "Red tailed boa": "Boa de cola roja",
+    "Red-bellied black snake": "Serpiente negra de vientre rojo",
+    "Rosy boa": "Boa rosada",
+    "Rubber boa": "Boa de goma",
+    "Rufuos beaked snake": "Serpiente picuda rufa",
+    "Sand boa": "Boa de arena",
+    "Sir lanka cat snake": "Serpiente gato de Sri Lanka",
+    "Snouted cobra": "Cobra hocicuda",
+    "Spectacled cobra": "Cobra de anteojos",
+    "Spitting cobra": "Cobra escupidora",
+    "Tawny cat snake": "Serpiente gato leonada",
+    "Texas blind snake": "Serpiente ciega de Texas",
+    "Texas coral snake": "Coral de Texas",
+    "Western blind snake": "Serpiente ciega occidental",
+    "Yellow cobra": "Cobra amarilla",
+    "Zebra spitting cobra": "Cobra escupidora cebra",
+    "copperhead": "Cabeza de cobre (Copperhead)",
+    "nubian spitting cobra": "Cobra escupidora de Nubia",
+    "ornate flying snake": "Serpiente voladora ornamentada",
+    "red sand boa": "Boa de arena roja"
+}
+
+def predict_species(species_model, image, json_path="models/class_name.json"):
+    # 1. Cargar las clases originales del JSON
+    with open(json_path, 'r') as f:
+        class_names = json.load(f)
+
+    # 2. Preprocesar la imagen (ajusta dimensiones según tu entrenamiento, ej: 224x224)
+    image_resized = tf.image.resize(image, (224, 224))
+    image_array = np.expand_dims(image_resized / 255.0, axis=0)
+
+    # 3. Predecir
+    predictions = species_model.predict(image_array)
+    idx = np.argmax(predictions[0])
+    prob = predictions[0][idx]
+
+    # 4. Obtener nombre en inglés
+    raw_name = class_names[idx]
+
+    # 5. Traducir al español (si no está en el mapa, muestra el nombre original)
+    spanish_name = TRADUCCION_ESPECIES.get(raw_name, raw_name)
+
+    return spanish_name, float(prob)
 
 # ---------------------------------------------------------------------------
 # Construcción y carga de modelos PyTorch (EfficientNet-B0)
