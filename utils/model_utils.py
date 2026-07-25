@@ -119,16 +119,8 @@ def load_venom_model(weights_path):
 def load_class_names(json_path):
     with open(json_path, "r", encoding="utf-8") as f:
         raw = json.load(f)
-    
-    # Si el JSON es una lista ["Abaco...", "Amazon..."]
     if isinstance(raw, list):
         return raw
-    
-    # Si el JSON es un diccionario {"0": "Abaco...", "1": "Amazon..."}
-    if isinstance(raw, dict):
-        return [raw[str(i)] if str(i) in raw else raw[i] for i in range(len(raw))]
-        
-    return raw
 
 
 # ---------------------------------------------------------------------------
