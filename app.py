@@ -1,3 +1,4 @@
+import os
 import streamlit as st
 from PIL import Image
 import numpy as np
@@ -27,10 +28,13 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- CARGA DE MODELOS CON CACHÉ ---
+# --- CARGA DE MODELOS CON CACHÉ Y VALIDACIÓN DE RUTA ---
 @st.cache_resource
 def get_presence_model():
-    return load_presence_model("models/modelo_presencia.h5")
+    path = "models/modelo_presencia.h5"
+    if not os.path.exists(path) and os.path.exists("models/modelo_presencia.keras"):
+        path = "models/modelo_presencia.keras"
+    return load_presence_model(path)
 
 @st.cache_resource
 def get_venom_model():
@@ -38,7 +42,13 @@ def get_venom_model():
 
 @st.cache_resource
 def get_species_model():
-    return load_species_model("models/modelo_veneno.weights.h5")
+    path = "models/modelo_especie.h5"
+    if not os.path.exists(path):
+        if os.path.exists("models/modelo_especie.keras"):
+            path = "models/modelo_especie.keras"
+        elif os.path.exists("models/modelo_especie.weights.h5"):
+            path = "models/modelo_especie.weights.h5"
+    return load_species_model(path)
 
 # --- INTERFAZ PRINCIPAL ---
 st.title("🐍 Analizador Identificador de Serpientes")
@@ -89,7 +99,7 @@ if image_file is not None:
             venom_model = get_venom_model()
             species_model = get_species_model()
             
-            # Convertir imagen a formato procesable si es necesario
+            # Convertir imagen a formato procesable
             image_np = np.array(image.convert("RGB"))
 
             # 2. Paso 1: Detección de Presencia
@@ -128,7 +138,6 @@ if image_file is not None:
                 if show_gradcam:
                     st.subheader("🔥 Mapa de Atención (Grad-CAM)")
                     st.info("Visualización de las regiones de la imagen en las que se enfocó la red neuronal.")
-                    # Si tienes integrada la función de gradcam en model_utils, se invoca aquí
 
         except Exception as e:
             st.error(f"Ocurrió un error durante la predicción: {e}")
