@@ -137,12 +137,19 @@ def _build_efficientnet(num_classes: int) -> nn.Module:
 def load_presence_model(weights_path: str) -> nn.Module:
     """Carga el modelo binario de presencia (Snake vs Non-Snake)."""
     model = _build_efficientnet(num_classes=2)
-    # Se añade weights_only=False para solucionar la restricción de PyTorch 2.6+
-    state_dict = torch.load(weights_path, map_location=DEVICE, weights_only=False)
     
-    if isinstance(state_dict, dict) and 'model_state_dict' in state_dict:
-        state_dict = state_dict['model_state_dict']
-        
+    # Mapeo explicito a CPU sin parametros conflictivos de PyTorch
+    checkpoint = torch.load(weights_path, map_location=torch.device('cpu'))
+    
+    if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+        state_dict = checkpoint['model_state_dict']
+    elif isinstance(checkpoint, dict):
+        state_dict = checkpoint
+    else:
+        # Si guardaste el modelo completo directamente
+        checkpoint.to(DEVICE).eval()
+        return checkpoint
+
     model.load_state_dict(state_dict)
     model.to(DEVICE).eval()
     return model
@@ -152,11 +159,17 @@ def load_species_model(weights_path: str, num_classes: int = 80) -> nn.Module:
     """Carga el modelo multiclase de especie."""
     model = models.efficientnet_b0(weights=None)
     
-    # Se añade weights_only=False para evitar el error de carga
-    state_dict = torch.load(weights_path, map_location=DEVICE, weights_only=False)
+    # Mapeo explicito a CPU
+    checkpoint = torch.load(weights_path, map_location=torch.device('cpu'))
     
-    if isinstance(state_dict, dict) and 'model_state_dict' in state_dict:
-        state_dict = state_dict['model_state_dict']
+    if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+        state_dict = checkpoint['model_state_dict']
+    elif isinstance(checkpoint, dict):
+        state_dict = checkpoint
+    else:
+        # Si guardaste el modelo completo directamente
+        checkpoint.to(DEVICE).eval()
+        return checkpoint
 
     checkpoint_num_classes = state_dict['classifier.1.weight'].shape[0] if 'classifier.1.weight' in state_dict else num_classes
     
@@ -166,7 +179,6 @@ def load_species_model(weights_path: str, num_classes: int = 80) -> nn.Module:
     model.load_state_dict(state_dict)
     model.to(DEVICE).eval()
     return model
-
 
 def load_venom_model(weights_path: str = "models/modelo_veneno.weights.h5"):
     """Carga el modelo Keras de veneno desde sus pesos guardados."""
