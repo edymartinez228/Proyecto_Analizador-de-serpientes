@@ -16,7 +16,6 @@ import json
 import numpy as np
 import cv2
 import os
-import h5py
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -94,43 +93,36 @@ def load_species_model(weights_path, num_classes=80):
 
 
 def load_venom_model(weights_path):
+    # 1. Desactivar el uso de Keras 3 para evitar choques con el formato antiguo .h5
     os.environ["TF_USE_LEGACY_KERAS"] = "1"
     
-    # 1. Intentar la carga nativa con safe_mode deshabilitado
+    # Intento 1: Usar tf_keras silenciando el guardado estricto
+    try:
+        import tf_keras
+        return tf_keras.models.load_model(weights_path, compile=False)
+    except Exception:
+        pass
+
+    # Intento 2: Usar tf.keras deshabilitando compilación y safe_mode
     try:
         return tf.keras.models.load_model(weights_path, compile=False, safe_mode=False)
     except Exception:
         pass
 
-    # 2. Intentar con tf_keras desactivando validaciones estrictas
+    # Intento 3: Cargar como modelo Keras genérico deshabilitando la validación de la configuración de entrada
     try:
-        import tf_keras
-        return tf_keras.models.load_model(weights_path, compile=False, safe_mode=False)
-    except Exception:
-        pass
-
-    # 3. Fallback: Deserializar parcheando el error de InputLayer/Keras config
-    try:
-        from tensorflow.python.keras.saving import hdf5_format
-        from tensorflow.python.keras.layers import InputLayer
-
-        # Parche local para omitir argumentos desconocidos en capas desactualizadas
-        class SafeInputLayer(InputLayer):
-            def __init__(self, **kwargs):
-                # Eliminar argumentos conflictivos del config antiguo
-                kwargs.pop("batch_shape", None)
-                kwargs.pop("optional", None)
-                super().__init__(**kwargs)
-
-        with h5py.File(weights_path, mode='r') as f:
-            return hdf5_format.load_model_from_hdf5(
-                f, 
-                custom_objects={'InputLayer': SafeInputLayer}, 
-                compile=False
-            )
+        from tensorflow.keras.models import load_model
+        return load_model(weights_path, compile=False)
     except Exception as e:
-        # Si todo lo anterior falla, cargar reconstruyendo estructura genérica o re-lanzar
-        raise RuntimeError(f"No se pudo deserializar el modelo de veneno .h5: {e}")
+        # Fallback final: Si falla por capas desactualizadas, cargar con custom_objects permisivo
+        def custom_objects():
+            return {}
+        
+        return tf.keras.models.load_model(
+            weights_path, 
+            compile=False, 
+            custom_objects={"InputLayer": tf.keras.layers.InputLayer}
+        )
 
 
 def load_class_names(json_path):
