@@ -73,7 +73,7 @@ def load_species_model(weights_path: str, num_classes: int) -> nn.Module:
     """Carga el modelo multi-clase de especies."""
     model = _build_efficientnet(num_classes=num_classes)
     state_dict = torch.load(weights_path, map_location=DEVICE)
-    model.load_state_dict(state_dict)
+    model.load_state_dict(state_dict, strict=False)
     model.to(DEVICE).eval()
     return model
 
