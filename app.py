@@ -33,7 +33,7 @@ st.markdown("""
 
 @st.cache_resource
 def get_presence_model():
-    # Solo buscar extensiones válidas de PyTorch (.pth / .pt)
+    # Buscar extensiones válidas de PyTorch (.pth / .pt)
     paths = [
         "models/modelo_serpiente.pth",
         "models/modelo_presencia.pt",
@@ -60,7 +60,7 @@ def get_venom_model():
 
 @st.cache_resource
 def get_species_model():
-    # Solo buscar extensiones válidas de PyTorch (.pth / .pt)
+    # Buscar extensiones válidas de PyTorch (.pth / .pt)
     paths = [
         "models/modelo_especie.pth",
         "models/modelo_especie.pt",
@@ -115,9 +115,9 @@ if image_file is not None:
     st.divider()
     st.subheader("🖼️ Imagen a Analizar")
     
-    # Cargar y desplegar imagen
-    image = Image.open(image_file)
-    st.image(image, caption="Imagen cargada", use_column_width=True)
+    # Cargar imagen y convertir a RGB (elimina posibles canales Alpha de imágenes PNG)
+    image = Image.open(image_file).convert("RGB")
+    st.image(image, caption="Imagen cargada", use_container_width=True)
     
     with st.spinner("Analizando la imagen con los modelos de IA..."):
         try:
@@ -126,8 +126,8 @@ if image_file is not None:
             venom_model = get_venom_model()
             species_model = get_species_model()
             
-            # Convertir imagen a arreglo NumPy
-            image_np = np.array(image.convert("RGB"))
+            # Convertir imagen PIL a arreglo NumPy
+            image_np = np.array(image)
 
             # 2. Paso 1: Detección de Presencia
             has_snake, presence_prob = predict_presence(presence_model, image_np, PRESENCE_THRESHOLD)
@@ -142,7 +142,7 @@ if image_file is not None:
                 # 3. Paso 2: Análisis de Veneno
                 is_venomous, venom_prob = predict_venom(venom_model, image_np, VENOM_THRESHOLD)
                 
-                # 4. Paso 3: Clasificación de Especie (Retorna nombre traducido al español)
+                # 4. Paso 3: Clasificación de Especie
                 species_name, species_prob = predict_species(species_model, image_np)
                 
                 col_venom, col_species = st.columns(2)
@@ -161,15 +161,13 @@ if image_file is not None:
                         delta=f"{species_prob*100:.1f}% coincidencia"
                     )
 
-                # Mapa de Atención si está habilitado
-                # Mapa de Atención si está habilitado
+                # 5. Paso 4: Mapa de Atención (Grad-CAM)
                 if show_gradcam:
                     st.divider()
                     st.subheader("🔥 Mapa de Atención (Grad-CAM)")
                     st.info("Visualización de las regiones clave en las que se enfocó la red neuronal para realizar la clasificación.")
                 
                     with st.spinner("Generando mapa de calor Grad-CAM..."):
-                        # Genera el overlay directamente con la función helper
                         cam_image = generate_gradcam(species_model, image_np)
                 
                         col_orig, col_cam = st.columns(2)
@@ -177,3 +175,6 @@ if image_file is not None:
                             st.image(image, caption="Imagen Original", use_container_width=True)
                         with col_cam:
                             st.image(cam_image, caption="Mapa de Calor (Atención del Modelo)", use_container_width=True)
+
+        except Exception as e:
+            st.error(f"Ocurrió un error durante el procesamiento: {str(e)}")
