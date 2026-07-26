@@ -133,27 +133,6 @@ def _build_efficientnet(num_classes: int) -> nn.Module:
     )
     return model
 
-
-def load_presence_model(weights_path: str) -> nn.Module:
-    """Carga el modelo binario de presencia (Snake vs Non-Snake)."""
-    model = _build_efficientnet(num_classes=2)
-    
-    # weights_only=False explícitamente para PyTorch 2.6+
-    checkpoint = torch.load(weights_path, map_location=torch.device('cpu'), weights_only=False)
-    
-    if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
-        state_dict = checkpoint['model_state_dict']
-    elif isinstance(checkpoint, dict):
-        state_dict = checkpoint
-    else:
-        checkpoint.to(DEVICE).eval()
-        return checkpoint
-
-    model.load_state_dict(state_dict)
-    model.to(DEVICE).eval()
-    return model
-
-
 def load_species_model(weights_path: str, num_classes: int = 80) -> nn.Module:
     """Carga el modelo multiclase de especie."""
     model = models.efficientnet_b0(weights=None)
@@ -303,16 +282,6 @@ def overlay_heatmap(original_rgb: np.ndarray, cam: np.ndarray, alpha: float = 0.
 # ---------------------------------------------------------------------------
 # Funciones de predicción de alto nivel para app.py
 # ---------------------------------------------------------------------------
-def predict_presence(model: nn.Module, image_rgb: np.ndarray, threshold: float = 0.5):
-    """Evalúa la presencia de serpiente a partir de la imagen NumPy original."""
-    tensor = preprocess_for_torch(image_rgb)
-    with torch.no_grad():
-        logits = model(tensor)
-        probs = F.softmax(logits, dim=1)[0]
-        snake_confidence = probs[1].item()  # Índice 1 = Serpiente
-    return snake_confidence >= threshold, snake_confidence
-
-
 def predict_species(model: nn.Module, image_rgb: np.ndarray, json_path: str = "models/class_name.json"):
     """Identifica la especie en español y devuelve (nombre_español, probabilidad)."""
     class_names = load_class_names(json_path)
