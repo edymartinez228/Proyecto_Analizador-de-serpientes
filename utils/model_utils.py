@@ -138,7 +138,7 @@ def load_presence_model(weights_path: str) -> nn.Module:
     """Carga el modelo binario de presencia (Snake vs Non-Snake)."""
     model = _build_efficientnet(num_classes=2)
     
-    # Agregamos weights_only=False explícitamente para PyTorch 2.6+
+    # weights_only=False explícitamente para PyTorch 2.6+
     checkpoint = torch.load(weights_path, map_location=torch.device('cpu'), weights_only=False)
     
     if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
@@ -158,7 +158,7 @@ def load_species_model(weights_path: str, num_classes: int = 80) -> nn.Module:
     """Carga el modelo multiclase de especie."""
     model = models.efficientnet_b0(weights=None)
     
-    # Agregamos weights_only=False explícitamente para PyTorch 2.6+
+    # weights_only=False explícitamente para PyTorch 2.6+
     checkpoint = torch.load(weights_path, map_location=torch.device('cpu'), weights_only=False)
     
     if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
@@ -178,6 +178,7 @@ def load_species_model(weights_path: str, num_classes: int = 80) -> nn.Module:
     model.to(DEVICE).eval()
     return model
 
+
 def load_venom_model(weights_path: str = "models/modelo_veneno.weights.h5"):
     """Carga el modelo Keras de veneno desde sus pesos guardados."""
     possible_paths = [
@@ -189,7 +190,7 @@ def load_venom_model(weights_path: str = "models/modelo_veneno.weights.h5"):
     actual_path = next((p for p in possible_paths if os.path.exists(p)), None)
 
     if not actual_path:
-        raise FileNotFoundError("❌ No se encontró el archivo de pesos de veneno en las rutas especificados.")
+        raise FileNotFoundError("❌ No se encontró el archivo de pesos de veneno en las rutas especificadas.")
 
     try:
         base_model = tf.keras.applications.MobileNetV2(
@@ -336,6 +337,7 @@ def predict_venom(model, image_rgb: np.ndarray, threshold: float = 0.5):
     is_venomous = prob_venomous >= threshold
     return is_venomous, prob_venomous
 
+
 def generate_gradcam(model: nn.Module, image_rgb: np.ndarray) -> np.ndarray:
     """
     Genera la imagen con el mapa de calor Grad-CAM superpuesto para la clase predicha.
@@ -343,16 +345,18 @@ def generate_gradcam(model: nn.Module, image_rgb: np.ndarray) -> np.ndarray:
     # 1. Preprocesar la imagen a Tensor
     tensor = preprocess_for_torch(image_rgb)
     
-    # 2. Obtener la clase con mayor probabilidad
-    with torch.no_grad():
+    # 2. Inicializar GradCAM (sin torch.no_grad, ya que necesitamos calcular gradientes)
+    grad_cam = GradCAM(model=model)
+    
+    # 3. Determinar la clase predicha con una pasada inicial
+    with torch.enable_grad():
         logits = model(tensor)
         pred_class = int(torch.argmax(logits, dim=1).item())
+        
+        # 4. Generar la máscara Grad-CAM
+        cam_mask = grad_cam.generate(input_tensor=tensor, class_idx=pred_class)
     
-    # 3. Inicializar GradCAM y generar la máscara
-    grad_cam = GradCAM(model=model)
-    cam_mask = grad_cam.generate(input_tensor=tensor, class_idx=pred_class)
-    
-    # 4. Superponer el mapa de calor sobre la imagen RGB original
+    # 5. Superponer el mapa de calor sobre la imagen RGB original
     overlay_img = overlay_heatmap(image_rgb, cam_mask)
     
     return overlay_img
