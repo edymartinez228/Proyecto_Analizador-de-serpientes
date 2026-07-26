@@ -13,6 +13,16 @@ from utils.model_utils import (
     predict_species
 )
 
+from utils.model_utils import (
+    load_presence_model,
+    load_venom_model,
+    load_species_model,
+    predict_presence,
+    predict_venom,
+    predict_species,
+    generate_gradcam # <-- Importante importar la función de Grad-CAM
+)
+
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
     page_title="Analizador de Serpientes",
@@ -161,9 +171,22 @@ if image_file is not None:
                     )
 
                 # Mapa de Atención si está habilitado
+                # Mapa de Atención si está habilitado
                 if show_gradcam:
+                    st.divider()
                     st.subheader("🔥 Mapa de Atención (Grad-CAM)")
-                    st.info("Visualización de las regiones clave en las que se enfocó la red neuronal.")
+                    st.info("Visualización de las regiones clave en las que se enfocó la red neuronal para realizar la clasificación.")
+
+                    with st.spinner("Generando mapa de calor Grad-CAM..."):
+                        # Se genera la imagen superpuesta con el mapa de calor
+                        # Pasa el modelo de especie o el de presencia según la capa que quieras analizar
+                        cam_image = generate_gradcam(species_model, image_np)
+
+                        col_orig, col_cam = st.columns(2)
+                        with col_orig:
+                            st.image(image, caption="Imagen Original", use_column_width=True)
+                        with col_cam:
+                            st.image(cam_image, caption="Mapa de Calor (Atención del Modelo)", use_column_width=True)
 
         except Exception as e:
             st.error(f"Ocurrió un error durante la predicción: {e}")
