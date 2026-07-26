@@ -335,3 +335,24 @@ def predict_venom(model, image_rgb: np.ndarray, threshold: float = 0.5):
     prob_venomous = float(raw_output[0][0])
     is_venomous = prob_venomous >= threshold
     return is_venomous, prob_venomous
+
+def generate_gradcam(model: nn.Module, image_rgb: np.ndarray) -> np.ndarray:
+    """
+    Genera la imagen con el mapa de calor Grad-CAM superpuesto para la clase predicha.
+    """
+    # 1. Preprocesar la imagen a Tensor
+    tensor = preprocess_for_torch(image_rgb)
+    
+    # 2. Obtener la clase con mayor probabilidad
+    with torch.no_grad():
+        logits = model(tensor)
+        pred_class = int(torch.argmax(logits, dim=1).item())
+    
+    # 3. Inicializar GradCAM y generar la máscara
+    grad_cam = GradCAM(model=model)
+    cam_mask = grad_cam.generate(input_tensor=tensor, class_idx=pred_class)
+    
+    # 4. Superponer el mapa de calor sobre la imagen RGB original
+    overlay_img = overlay_heatmap(image_rgb, cam_mask)
+    
+    return overlay_img
