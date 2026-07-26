@@ -133,11 +133,33 @@ def _build_efficientnet(num_classes: int) -> nn.Module:
     )
     return model
 
+
+def load_presence_model(weights_path: str) -> nn.Module:
+    """Carga el modelo binario de detección de presencia de serpiente."""
+    model = models.efficientnet_b0(weights=None)
+    checkpoint = torch.load(weights_path, map_location=torch.device('cpu'), weights_only=False)
+    
+    if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+        state_dict = checkpoint['model_state_dict']
+    elif isinstance(checkpoint, dict):
+        state_dict = checkpoint
+    else:
+        checkpoint.to(DEVICE).eval()
+        return checkpoint
+
+    checkpoint_num_classes = state_dict['classifier.1.weight'].shape[0] if 'classifier.1.weight' in state_dict else 1
+    
+    in_features = model.classifier[1].in_features
+    model.classifier[1] = nn.Linear(in_features, checkpoint_num_classes)
+    
+    model.load_state_dict(state_dict)
+    model.to(DEVICE).eval()
+    return model
+
+
 def load_species_model(weights_path: str, num_classes: int = 80) -> nn.Module:
     """Carga el modelo multiclase de especie."""
     model = models.efficientnet_b0(weights=None)
-    
-    # weights_only=False explícitamente para PyTorch 2.6+
     checkpoint = torch.load(weights_path, map_location=torch.device('cpu'), weights_only=False)
     
     if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
@@ -234,7 +256,6 @@ class GradCAM:
 
     def __init__(self, model: nn.Module, target_layer: nn.Module = None):
         self.model = model
-        # Si no se especifica la capa objetivo, se toma la última capa convolucional de EfficientNet
         if target_layer is None:
             self.target_layer = model.features[-1]
         else:
@@ -282,6 +303,20 @@ def overlay_heatmap(original_rgb: np.ndarray, cam: np.ndarray, alpha: float = 0.
 # ---------------------------------------------------------------------------
 # Funciones de predicción de alto nivel para app.py
 # ---------------------------------------------------------------------------
+def predict_presence(model: nn.Module, image_rgb: np.ndarray, threshold: float = 0.5):
+    """Evalúa si hay presencia de serpiente en la imagen."""
+    tensor = preprocess_for_torch(image_rgb)
+    
+    with torch.no_grad():
+        logits = model(tensor)
+        probs = F.softmax(logits, dim=1)[0].cpu().numpy()
+    
+    # Asumiendo que la clase 1 es 'Serpiente'
+    prob_snake = float(probs[1]) if len(probs) > 1 else float(torch.sigmoid(logits)[0].item())
+    has_snake = prob_snake >= threshold
+    return has_snake, prob_snake
+
+
 def predict_species(model: nn.Module, image_rgb: np.ndarray, json_path: str = "models/class_name.json"):
     """Identifica la especie en español y devuelve (nombre_español, probabilidad)."""
     class_names = load_class_names(json_path)
@@ -308,28 +343,16 @@ def predict_venom(model, image_rgb: np.ndarray, threshold: float = 0.5):
 
 
 def generate_gradcam(model: nn.Module, image_rgb: np.ndarray) -> np.ndarray:
-    """
-    Genera la imagen con el mapa de calor Grad-CAM superpuesto para la clase predicha.
-    """
-    # 1. Preprocesar la imagen a Tensor
+    """Genera la imagen con el mapa de calor Grad-CAM superpuesto para la clase predicha."""
     tensor = preprocess_for_torch(image_rgb)
-    
-    # 2. Inicializar GradCAM
     grad_cam = GradCAM(model=model)
     
-    # 3. Habilitar gradientes explícitamente y calcular
     with torch.enable_grad():
-        # Pasada directa para obtener predicción
         logits = model(tensor)
         pred_class = int(torch.argmax(logits, dim=1).item())
-        
-        # Generar máscara utilizando la clase predicha
         cam_mask = grad_cam.generate(input_tensor=tensor, class_idx=pred_class)
     
-    # 4. Superponer el mapa de calor sobre la imagen RGB original
     overlay_img = overlay_heatmap(image_rgb, cam_mask)
-    
-    # 5. Limpieza de gradientes en el modelo
     model.zero_grad()
     
     return overlay_img
