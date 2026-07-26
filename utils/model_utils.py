@@ -314,18 +314,22 @@ def generate_gradcam(model: nn.Module, image_rgb: np.ndarray) -> np.ndarray:
     # 1. Preprocesar la imagen a Tensor
     tensor = preprocess_for_torch(image_rgb)
     
-    # 2. Inicializar GradCAM (sin torch.no_grad, ya que necesitamos calcular gradientes)
+    # 2. Inicializar GradCAM
     grad_cam = GradCAM(model=model)
     
-    # 3. Determinar la clase predicha con una pasada inicial
+    # 3. Habilitar gradientes explícitamente y calcular
     with torch.enable_grad():
+        # Pasada directa para obtener predicción
         logits = model(tensor)
         pred_class = int(torch.argmax(logits, dim=1).item())
         
-        # 4. Generar la máscara Grad-CAM
+        # Generar máscara utilizando la clase predicha
         cam_mask = grad_cam.generate(input_tensor=tensor, class_idx=pred_class)
     
-    # 5. Superponer el mapa de calor sobre la imagen RGB original
+    # 4. Superponer el mapa de calor sobre la imagen RGB original
     overlay_img = overlay_heatmap(image_rgb, cam_mask)
+    
+    # 5. Limpieza de gradientes en el modelo
+    model.zero_grad()
     
     return overlay_img
