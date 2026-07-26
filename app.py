@@ -10,17 +10,8 @@ from utils.model_utils import (
     load_species_model,
     predict_presence,
     predict_venom,
-    predict_species
-)
-
-from utils.model_utils import (
-    load_presence_model,
-    load_venom_model,
-    load_species_model,
-    predict_presence,
-    predict_venom,
     predict_species,
-    generate_gradcam # <-- Importante importar la función de Grad-CAM
+    generate_gradcam
 )
 
 # --- CONFIGURACIÓN DE PÁGINA ---
@@ -176,17 +167,13 @@ if image_file is not None:
                     st.divider()
                     st.subheader("🔥 Mapa de Atención (Grad-CAM)")
                     st.info("Visualización de las regiones clave en las que se enfocó la red neuronal para realizar la clasificación.")
-
+                
                     with st.spinner("Generando mapa de calor Grad-CAM..."):
-                        # Se genera la imagen superpuesta con el mapa de calor
-                        # Pasa el modelo de especie o el de presencia según la capa que quieras analizar
+                        # Genera el overlay directamente con la función helper
                         cam_image = generate_gradcam(species_model, image_np)
-
+                
                         col_orig, col_cam = st.columns(2)
                         with col_orig:
-                            st.image(image, caption="Imagen Original", use_column_width=True)
+                            st.image(image, caption="Imagen Original", use_container_width=True)
                         with col_cam:
-                            st.image(cam_image, caption="Mapa de Calor (Atención del Modelo)", use_column_width=True)
-
-        except Exception as e:
-            st.error(f"Ocurrió un error durante la predicción: {e}")
+                            st.image(cam_image, caption="Mapa de Calor (Atención del Modelo)", use_container_width=True)
