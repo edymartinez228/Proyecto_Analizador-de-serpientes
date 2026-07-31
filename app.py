@@ -36,10 +36,10 @@ st.markdown("""
 def get_presence_model():
     # Buscar el modelo YOLOv8 de presencia (.pt) en la carpeta 'models'
     paths = [
+        "models/modelo_serpiente.pt",
         "models/best.pt",
         "models/modelo_presencia.pt",
-        "models/detector_serpientes_best.pt",
-        "models/modelo_serpiente.pth"
+        "models/detector_serpientes_best.pt"
     ]
     selected_path = next((p for p in paths if os.path.exists(p)), None)
     
