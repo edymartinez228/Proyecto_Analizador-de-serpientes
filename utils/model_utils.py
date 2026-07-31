@@ -18,6 +18,7 @@ import albumentations as A
 from albumentations.pytorch import ToTensorV2
 
 import tensorflow as tf
+from ultralytics import YOLO
 
 # ---------------------------------------------------------------------------
 # Configuración global
@@ -121,44 +122,16 @@ TRADUCCION_ESPECIES = {
 }
 
 # ---------------------------------------------------------------------------
-# Construcción y carga de modelos PyTorch (EfficientNet-B0)
+# Carga de Modelos
 # ---------------------------------------------------------------------------
-def _build_efficientnet(num_classes: int) -> nn.Module:
-    """Recrea la arquitectura exacta usada en el entrenamiento."""
-    model = models.efficientnet_b0(weights=None)
-    in_features = model.classifier[1].in_features
-    model.classifier = nn.Sequential(
-        nn.Dropout(p=0.3, inplace=True),
-        nn.Linear(in_features, num_classes),
-    )
-    return model
-
-
-def load_presence_model(weights_path: str) -> nn.Module:
-    """Carga el modelo binario de detección de presencia de serpiente."""
-    model = models.efficientnet_b0(weights=None)
-    checkpoint = torch.load(weights_path, map_location=torch.device('cpu'), weights_only=False)
-    
-    if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
-        state_dict = checkpoint['model_state_dict']
-    elif isinstance(checkpoint, dict):
-        state_dict = checkpoint
-    else:
-        checkpoint.to(DEVICE).eval()
-        return checkpoint
-
-    checkpoint_num_classes = state_dict['classifier.1.weight'].shape[0] if 'classifier.1.weight' in state_dict else 1
-    
-    in_features = model.classifier[1].in_features
-    model.classifier[1] = nn.Linear(in_features, checkpoint_num_classes)
-    
-    model.load_state_dict(state_dict)
-    model.to(DEVICE).eval()
+def load_presence_model(weights_path: str):
+    """Carga el modelo de clasificación/detección de presencia YOLOv8 (.pt)."""
+    model = YOLO(weights_path)
     return model
 
 
 def load_species_model(weights_path: str, num_classes: int = 80) -> nn.Module:
-    """Carga el modelo multiclase de especie."""
+    """Carga el modelo multiclase EfficientNet-B0 de especie."""
     model = models.efficientnet_b0(weights=None)
     checkpoint = torch.load(weights_path, map_location=torch.device('cpu'), weights_only=False)
     
@@ -303,18 +276,17 @@ def overlay_heatmap(original_rgb: np.ndarray, cam: np.ndarray, alpha: float = 0.
 # ---------------------------------------------------------------------------
 # Funciones de predicción de alto nivel para app.py
 # ---------------------------------------------------------------------------
-def predict_presence(model: nn.Module, image_rgb: np.ndarray, threshold: float = 0.5):
-    """Evalúa si hay presencia de serpiente en la imagen."""
-    tensor = preprocess_for_torch(image_rgb)
+def predict_presence(model, image_rgb: np.ndarray, threshold: float = 0.5):
+    """Evalúa si hay presencia de serpiente en la imagen utilizando YOLOv8."""
+    results = model(image_rgb, verbose=False)
     
-    with torch.no_grad():
-        logits = model(tensor)
-        probs = F.softmax(logits, dim=1)[0].cpu().numpy()
+    top1_idx = results[0].probs.top1
+    top1_class = results[0].names[top1_idx]
+    top1_conf = float(results[0].probs.top1conf.item())
     
-    # Asumiendo que la clase 1 es 'Serpiente'
-    prob_snake = float(probs[1]) if len(probs) > 1 else float(torch.sigmoid(logits)[0].item())
-    has_snake = prob_snake >= threshold
-    return has_snake, prob_snake
+    # Considera detectada la serpiente si predice la clase positiva con suficiente confianza
+    has_snake = (top1_class.lower() in ["snake", "serpiente"]) and (top1_conf >= threshold)
+    return has_snake, top1_conf
 
 
 def predict_species(model: nn.Module, image_rgb: np.ndarray, json_path: str = "models/class_name.json"):
