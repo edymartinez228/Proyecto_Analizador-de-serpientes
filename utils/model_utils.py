@@ -276,16 +276,33 @@ def overlay_heatmap(original_rgb: np.ndarray, cam: np.ndarray, alpha: float = 0.
 # ---------------------------------------------------------------------------
 # Funciones de predicción de alto nivel para app.py
 # ---------------------------------------------------------------------------
-def predict_presence(model, image_rgb: np.ndarray, threshold: float = 0.5):
-    """Evalúa si hay presencia de serpiente en la imagen utilizando YOLOv8."""
+def predict_presence(model, image_rgb: np.ndarray, threshold: float = 0.70):
+    """
+    Evalúa si hay presencia de serpiente en la imagen utilizando YOLOv8.
+    Aplica una validación rigurosa sobre el índice de clase y nivel de confianza.
+    """
     results = model(image_rgb, verbose=False)
     
-    top1_idx = results[0].probs.top1
-    top1_class = results[0].names[top1_idx]
-    top1_conf = float(results[0].probs.top1conf.item())
+    # 1. Obtener la distribución de probabilidades de YOLO
+    probs = results[0].probs
+    top1_idx = int(probs.top1)
+    top1_class = results[0].names[top1_idx].lower()
+    top1_conf = float(probs.top1conf.item())
     
-    # Considera detectada la serpiente si predice la clase positiva con suficiente confianza
-    has_snake = (top1_class.lower() in ["snake", "serpiente"]) and (top1_conf >= threshold)
+    # Imprimir en consola de Streamlit para verificar qué clases reconoció el modelo
+    print(f"[DEBUG YOLO] Clase predicha: '{top1_class}' | Confianza: {top1_conf:.4f} | Clases del modelo: {results[0].names}")
+
+    # 2. Definir las etiquetas que corresponden a "NO HAY SERPIENTE"
+    negative_labels = ["no_snake", "nosnake", "background", "fondo", "nada", "other", "empty"]
+
+    # 3. Evaluar lógica de presencia
+    # Si la clase predicha es explícitamente negativa, NO hay serpiente
+    if any(neg in top1_class for neg in negative_labels):
+        has_snake = False
+    else:
+        # Si predijo 'snake' o similar, exigimos que la confianza supere el umbral (ej. 70%)
+        has_snake = (top1_conf >= threshold)
+    
     return has_snake, top1_conf
 
 
