@@ -276,34 +276,28 @@ def overlay_heatmap(original_rgb: np.ndarray, cam: np.ndarray, alpha: float = 0.
 # ---------------------------------------------------------------------------
 # Funciones de predicción de alto nivel para app.py
 # ---------------------------------------------------------------------------
-def predict_presence(model, image_rgb: np.ndarray, threshold: float = 0.70):
+def predict_presence(presence_model, image_rgb, min_confidence=0.85):
     """
-    Evalúa si hay presencia de serpiente en la imagen utilizando YOLOv8.
-    Aplica una validación rigurosa sobre el índice de clase y nivel de confianza.
+    Evalúa la presencia usando YOLO Classification.
+    Aplica un umbral rígido para evitar falsos positivos en rostros y paredes.
     """
-    results = model(image_rgb, verbose=False)
+    # 1. Inferencia
+    results = presence_model(image_rgb, imgsz=416, verbose=False)[0]
     
-    # 1. Obtener la distribución de probabilidades de YOLO
-    probs = results[0].probs
-    top1_idx = int(probs.top1)
-    top1_class = results[0].names[top1_idx].lower()
-    top1_conf = float(probs.top1conf.item())
-    
-    # Imprimir en consola de Streamlit para verificar qué clases reconoció el modelo
-    print(f"[DEBUG YOLO] Clase predicha: '{top1_class}' | Confianza: {top1_conf:.4f} | Clases del modelo: {results[0].names}")
+    # 2. Obtener probabilidades y nombres de clases
+    probs = results.probs
+    top1_idx = probs.top1
+    top1_class = results.names[top1_idx]  # 'snake' o 'no_snake'
+    top1_conf = float(probs.top1conf.cpu())
 
-    # 2. Definir las etiquetas que corresponden a "NO HAY SERPIENTE"
-    negative_labels = ["no_snake", "nosnake", "background", "fondo", "nada", "other", "empty"]
-
-    # 3. Evaluar lógica de presencia
-    # Si la clase predicha es explícitamente negativa, NO hay serpiente
-    if any(neg in top1_class for neg in negative_labels):
-        has_snake = False
+    # 3. Regla estricta: Solo es True si la clase ganadora es 'snake' 
+    # Y ADEMÁS supera el umbral del 85% de certeza.
+    if top1_class.lower() == "snake" and top1_conf >= min_confidence:
+        has_snake = True
     else:
-        # Si predijo 'snake' o similar, exigimos que la confianza supere el umbral (ej. 70%)
-        has_snake = (top1_conf >= threshold)
-    
-    return has_snake, top1_conf
+        has_snake = False
+
+    return has_snake, top1_conf, top1_class
 
 
 def predict_species(model: nn.Module, image_rgb: np.ndarray, json_path: str = "models/class_name.json"):
