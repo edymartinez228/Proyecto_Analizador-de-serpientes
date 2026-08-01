@@ -6,17 +6,15 @@ con soporte adaptativo de resolución (Letterboxing) para prevenir
 deformaciones y falsos positivos.
 """
 
+import os
 import json
 import numpy as np
 import cv2
-import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from ultralytics import YOLO
 from torchvision import models, transforms
 from PIL import Image
-
 import tensorflow as tf
 from ultralytics import YOLO
 
@@ -30,19 +28,15 @@ IMAGENET_STD = [0.229, 0.224, 0.225]
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# Palabras clave y géneros médicos de importancia para la validación cruzada de veneno
 VENOMOUS_KEYWORDS = [
-    # Nombres científicos (Géneros)
     "agkistrodon", "austrelaps", "bitis", "bothriechis", "bothrops", "bungarus",
     "causus", "crotalus", "daboia", "dendroaspis", "laticauda", "micrurus",
     "naja", "ophiophagus", "oxyuranus", "protobothrops", "pseudechis",
     "pseudonaja", "rhabdophis", "sistrurus", "trimeresurus", "tropidolaemus", "vipera",
-    # Nombres comunes
     "cobra", "viper", "mamba", "krait", "coral", "rattlesnake", "taipan",
     "copperhead", "cottonmouth", "boomslang", "cantil", "cascabel", "víbora"
 ]
 
-# Diccionario de traducción Nombre Científico -> Nombre Común en Español
 TRADUCCION_ESPECIES = {
     "Agkistrodon contortrix": "Cabeza de Cobre (Copperhead)",
     "Agkistrodon piscivorus": "Boca de Algodón (Cottonmouth)",
@@ -182,7 +176,7 @@ TRADUCCION_ESPECIES = {
 }
 
 # ---------------------------------------------------------------------------
-# Procesamiento Adaptativo de Proporciones (Letterboxing)
+# Procesamiento Adaptativo (Letterboxing)
 # ---------------------------------------------------------------------------
 def resize_aspect_ratio_pad(image_rgb: np.ndarray, target_size: int = 224) -> np.ndarray:
     """Redimensiona cualquier imagen a target_size x target_size preservando la relación de aspecto."""
@@ -224,7 +218,6 @@ def load_species_model(weights_path: str, num_classes: int = None) -> nn.Module:
         else:
             num_classes = 135
 
-    # Carga multiarquitectura resiliente (B0 -> B1 -> B2)
     architectures = [models.efficientnet_b0, models.efficientnet_b1, models.efficientnet_b2]
     loaded_model = None
 
@@ -304,17 +297,17 @@ def load_class_names(json_path: str = "modelo_especie_out/class_names.json") -> 
     if isinstance(raw, dict):
         return [raw[str(i)] if str(i) in raw else raw[i] for i in range(len(raw))]
         
-    return raw
+    return list(TRADUCCION_ESPECIES.keys())
 
 # ---------------------------------------------------------------------------
-# Preprocesamiento Adaptativo (Uso de torchvision.transforms)
+# Preprocesamiento Adaptativo
 # ---------------------------------------------------------------------------
 def preprocess_for_torch(image_rgb: np.ndarray, target_size: int = IMG_SIZE_SPECIES) -> torch.Tensor:
     """Adapta cualquier resolución al target_size deseado respetando la relación de aspecto."""
     padded_img = resize_aspect_ratio_pad(image_rgb, target_size=target_size)
     
     eval_transform = transforms.Compose([
-        transforms.ToTensor(),  # Convierte la imagen [0, 255] np.uint8 a tensor [0.0, 1.0]
+        transforms.ToTensor(),
         transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD)
     ])
     
@@ -332,19 +325,18 @@ def preprocess_for_keras(image_rgb: np.ndarray, target_size: int = IMG_SIZE_DEFA
 # Grad-CAM Adaptativo
 # ---------------------------------------------------------------------------
 class GradCAM:
-    """Implementación de Grad-CAM para visualizar mapas de atención."""
+    """Implementación limpia de Grad-CAM para evitar acumulación de hooks en PyTorch."""
 
     def __init__(self, model: nn.Module, target_layer: nn.Module = None):
         self.model = model
-        if target_layer is None:
-            self.target_layer = model.features[-1]
-        else:
-            self.target_layer = target_layer
-            
+        self.target_layer = target_layer if target_layer is not None else model.features[-1]
         self.activations = None
         self.gradients = None
-        self.target_layer.register_forward_hook(self._save_activations)
-        self.target_layer.register_full_backward_hook(self._save_gradients)
+        
+        self.handles = [
+            self.target_layer.register_forward_hook(self._save_activations),
+            self.target_layer.register_full_backward_hook(self._save_gradients)
+        ]
 
     def _save_activations(self, module, input, output):
         self.activations = output.detach()
@@ -371,6 +363,11 @@ class GradCAM:
         cam = cam / (cam.max() + 1e-8)
         return cam.cpu().numpy()
 
+    def remove_hooks(self):
+        """Limpia los hooks registrados para prevenir memory leaks."""
+        for handle in self.handles:
+            handle.remove()
+
 
 def overlay_heatmap(original_rgb: np.ndarray, cam: np.ndarray, alpha: float = 0.45) -> np.ndarray:
     """Superpone el mapa de calor sobre la resolución original de la imagen."""
@@ -386,36 +383,25 @@ def overlay_heatmap(original_rgb: np.ndarray, cam: np.ndarray, alpha: float = 0.
 # ---------------------------------------------------------------------------
 # Funciones de Predicción e Inferencia Integradas
 # ---------------------------------------------------------------------------
-# En utils/model_utils.py
-
 def predict_presence(model, image_np: np.ndarray, threshold: float = 0.50):
-    """
-    Inferencia corregida para YOLOv8: convierte RGB a BGR para que la red
-    reconozca los colores reales de la serpiente.
-    """
+    """Inferencia para YOLOv8 con conversión explícita de formato a BGR."""
     if not isinstance(image_np, np.ndarray):
         image_np = np.array(image_np)
 
-    # CORRECCIÓN CRÍTICA: Convertir RGB (PIL) a BGR (OpenCV / YOLO)
     image_bgr = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
-
-    # Inferencia
     results = model.predict(source=image_bgr, verbose=False)
     
     if results and len(results) > 0:
         boxes = results[0].boxes
-        
         if boxes is not None and len(boxes) > 0 and boxes.conf is not None:
             confidences = boxes.conf.cpu().numpy()
             max_conf = float(np.max(confidences))
             
-            print(f"--> [DEBUG YOLO] Cajas detectadas: {len(boxes)} | Máxima confianza: {max_conf:.4f}")
-            
             has_snake = max_conf >= threshold
             return has_snake, max_conf
 
-    print("--> [DEBUG YOLO] No se detectó ninguna caja en la imagen.")
     return False, 0.0
+
 
 def predict_species(model: nn.Module, image_rgb: np.ndarray, json_path: str = "modelo_especie_out/class_names.json", top_k: int = 5):
     """Identifica la especie y devuelve el ranking Top-K de predicciones traducidas."""
@@ -476,16 +462,18 @@ def cross_validate_venom_risk(species_raw_name: str, is_venomous_pred: bool) -> 
 
 
 def generate_gradcam(model: nn.Module, image_rgb: np.ndarray) -> np.ndarray:
-    """Genera la visualización Grad-CAM proyectada en la dimensión original."""
+    """Genera la visualización Grad-CAM proyectada en la dimensión original con limpieza de hooks."""
     tensor = preprocess_for_torch(image_rgb, target_size=IMG_SIZE_SPECIES)
     grad_cam = GradCAM(model=model)
     
-    with torch.enable_grad():
-        logits = model(tensor)
-        pred_class = int(torch.argmax(logits, dim=1).item())
-        cam_mask = grad_cam.generate(input_tensor=tensor, class_idx=pred_class)
-    
-    overlay_img = overlay_heatmap(image_rgb, cam_mask)
-    model.zero_grad()
-    
-    return overlay_img
+    try:
+        with torch.enable_grad():
+            logits = model(tensor)
+            pred_class = int(torch.argmax(logits, dim=1).item())
+            cam_mask = grad_cam.generate(input_tensor=tensor, class_idx=pred_class)
+        
+        overlay_img = overlay_heatmap(image_rgb, cam_mask)
+        model.zero_grad()
+        return overlay_img
+    finally:
+        grad_cam.remove_hooks()
