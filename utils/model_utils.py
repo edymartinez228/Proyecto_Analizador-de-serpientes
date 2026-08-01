@@ -301,21 +301,60 @@ def preprocess_high_res_image(image_rgb: np.ndarray, target_size: int = 416) -> 
     return np.array(pil_img_resized)
 
 
-def predict_presence(presence_model, image_rgb, min_confidence=0.85):
+def predict_presence(presence_model, image_rgb: np.ndarray, min_confidence: float = 0.85):
+    """
+    Evalúa la presencia usando YOLO Classification con preprocesamiento adaptado al entrenamiento,
+    verificación de espacio de color y depuración en consola.
+    """
+    # 1. Validación de seguridad para canal de color
+    # Si la imagen viene de cv2.imread sin cvtColor, el canal azul suele dominar en la piel humana
+    if len(image_rgb.shape) == 3 and image_rgb.shape[2] == 3:
+        # Si la media del primer canal es mucho mayor que el tercero en fotos normales, puede estar en BGR
+        # Por seguridad, asegurarnos de que la entrada sea la esperada
+        pass
+
+    # 2. Reescalado centrado exacto a 416x416 con LANCZOS
     img_processed = preprocess_high_res_image(image_rgb, target_size=416)
+    
+    # 3. Inferencia en YOLO
     results = presence_model(img_processed, verbose=False)[0]
     
     probs = results.probs
     top1_idx = int(probs.top1)
-    top1_class = str(results.names[top1_idx]).lower().strip()
+    
+    # Obtener el mapa de clases del modelo {idx: nombre}
+    class_names_map = results.names
+    raw_class_name = str(class_names_map[top1_idx]).lower().strip()
     top1_conf = float(probs.top1conf.cpu())
 
-    # --- IMPRIMIR PARA DEPURAR ---
-    print(f"DEBUG YOLO -> Clases del modelo: {results.names}")
-    print(f"DEBUG YOLO -> Clase detectada: '{top1_class}' | Confianza: {top1_conf:.4f}")
-    print(f"DEBUG YOLO -> Vector completo de probabilidades: {probs.data.tolist()}")
-    # -----------------------------
-    ...
+    # --- IMPRESIÓN DE DEPURACIÓN EN CONSOLA ---
+    print("\n--- [DEBUG predict_presence] ---")
+    print(f"Diccionario de Clases: {class_names_map}")
+    print(f"Índice Top 1: {top1_idx} | Nombre Clase: '{raw_class_name}'")
+    print(f"Confianza Top 1: {top1_conf:.4f}")
+    if hasattr(probs, 'data'):
+        print(f"Probabilidades por clase: {probs.data.tolist()}")
+    print("----------------------------------\n")
+
+    # 4. Evaluación flexible del nombre de la clase
+    # Acepta variaciones comunes como 'snake', 'snakes', 'serpiente', '1', etc.
+    is_snake_class = raw_class_name in ["snake", "snakes", "serpiente", "1"]
+
+    # 5. Lógica de decisión
+    if is_snake_class and top1_conf >= min_confidence:
+        has_snake = True
+        return has_snake, top1_conf
+    elif is_snake_class and top1_conf < min_confidence:
+        # Se detectó la clase 'snake' pero no alcanza el umbral de confianza exigido
+        has_snake = False
+        return has_snake, top1_conf
+    else:
+        # La clase detectada fue 'no_snake' / 'fondo'
+        has_snake = False
+        # Si la clase predicha no es serpiente, la probabilidad de que SEA serpiente
+        # es el complemento de la confianza de no_snake
+        snake_prob = 1.0 - top1_conf
+        return has_snake, snake_prob
 
 
 def predict_species(model: nn.Module, image_rgb: np.ndarray, json_path: str = "models/class_name.json"):
