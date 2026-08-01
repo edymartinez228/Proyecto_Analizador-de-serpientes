@@ -1,21 +1,10 @@
---extra-index-url https://download.pytorch.org/whl/cpu
-
-# Framework principal
 streamlit
-
-# Motor de deep learning de especies (EfficientNet)
 torch==2.3.1
 torchvision==0.18.1
-
-# Preprocesamiento de imágenes (DEBE ir antes de ultralytics)
-opencv-python-headless==4.10.0.84
-albumentations==1.4.10
-Pillow
-
-# Detección de presencia (YOLOv8) y veneno (Keras/TF)
 ultralytics
 tensorflow-cpu
-
-# Manejo de datos y utilidades
+albumentations==1.4.10
+opencv-python-headless==4.10.0.84
+Pillow
 numpy==1.26.4
 pandas==2.2.2
