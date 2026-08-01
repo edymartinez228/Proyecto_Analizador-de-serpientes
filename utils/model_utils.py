@@ -281,23 +281,24 @@ def predict_presence(presence_model, image_rgb, min_confidence=0.85):
     Evalúa la presencia usando YOLO Classification.
     Aplica un umbral rígido para evitar falsos positivos en rostros y paredes.
     """
-    # 1. Inferencia
-    results = presence_model(image_np, imgsz=416, verbose=False)[0]
+    # 1. Inferencia (Corregido: usamos 'image_rgb', que es el argumento recibido)
+    results = presence_model(image_rgb, imgsz=416, verbose=False)[0]
     
     # 2. Obtener probabilidades y nombres de clases
     probs = results.probs
-    top1_idx = probs.top1
+    top1_idx = int(probs.top1)
     top1_class = results.names[top1_idx]  # 'snake' o 'no_snake'
     top1_conf = float(probs.top1conf.cpu())
 
     # 3. Regla estricta: Solo es True si la clase ganadora es 'snake' 
     # Y ADEMÁS supera el umbral del 85% de certeza.
-    if top1_class.lower() == "snake" and top1_conf >= min_confidence:
+    if top1_class.lower().strip() == "snake" and top1_conf >= min_confidence:
         has_snake = True
     else:
         has_snake = False
 
-    return has_snake, top1_conf, top1_class
+    # Devolvemos 2 valores para coincidir exactamente con app.py
+    return has_snake, top1_conf
 
 
 def predict_species(model: nn.Module, image_rgb: np.ndarray, json_path: str = "models/class_name.json"):
