@@ -302,13 +302,7 @@ def preprocess_high_res_image(image_rgb: np.ndarray, target_size: int = 416) -> 
 
 
 def predict_presence(presence_model, image_rgb, min_confidence=0.85):
-    """
-    Evalúa la presencia usando YOLO Classification con preprocesamiento adaptado al entrenamiento.
-    """
-    # 1. Ajustar a resolución exacta de entrenamiento (416x416)
     img_processed = preprocess_high_res_image(image_rgb, target_size=416)
-    
-    # 2. Inferencia en YOLO
     results = presence_model(img_processed, verbose=False)[0]
     
     probs = results.probs
@@ -316,19 +310,12 @@ def predict_presence(presence_model, image_rgb, min_confidence=0.85):
     top1_class = str(results.names[top1_idx]).lower().strip()
     top1_conf = float(probs.top1conf.cpu())
 
-    # 3. Lógica de decisión y calibración de probabilidad devuelta
-    if top1_class == "snake" and top1_conf >= min_confidence:
-        has_snake = True
-        return has_snake, top1_conf
-    elif top1_class == "snake" and top1_conf < min_confidence:
-        # Detectó rasgos pero no supera el umbral
-        has_snake = False
-        return has_snake, top1_conf
-    else:
-        # La clase principal fue 'no_snake'
-        has_snake = False
-        snake_prob = 1.0 - top1_conf  # Probabilidad real asignada a que SEA serpiente
-        return has_snake, snake_prob
+    # --- IMPRIMIR PARA DEPURAR ---
+    print(f"DEBUG YOLO -> Clases del modelo: {results.names}")
+    print(f"DEBUG YOLO -> Clase detectada: '{top1_class}' | Confianza: {top1_conf:.4f}")
+    print(f"DEBUG YOLO -> Vector completo de probabilidades: {probs.data.tolist()}")
+    # -----------------------------
+    ...
 
 
 def predict_species(model: nn.Module, image_rgb: np.ndarray, json_path: str = "models/class_name.json"):
