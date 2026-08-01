@@ -386,15 +386,21 @@ def overlay_heatmap(original_rgb: np.ndarray, cam: np.ndarray, alpha: float = 0.
 # Funciones de Predicción e Inferencia Integradas
 # ---------------------------------------------------------------------------
 def predict_presence(model, image_np, threshold=0.60):
+    # Realizar inferencia con YOLOv8
     results = model.predict(source=image_np, verbose=False)
     
-    if len(results[0].boxes) > 0:
-        # Obtener la confianza máxima entre todas las detecciones
-        max_conf = float(results[0].boxes.conf.max().cpu().numpy())
-        has_snake = max_conf >= threshold
-        return has_snake, max_conf
-    
-    # Si de verdad no encontró ningún bounding box
+    # 1. Verificar si hay resultados y si existen detecciones (boxes)
+    if results and len(results) > 0 and results[0].boxes is not None:
+        boxes = results[0].boxes
+        
+        # 2. Verificar que las cajas tengan confianzas calculadas
+        if len(boxes) > 0 and boxes.conf is not None and len(boxes.conf) > 0:
+            # Obtener la máxima confianza registrada por el modelo
+            max_conf = float(boxes.conf.max().cpu().numpy())
+            has_snake = max_conf >= threshold
+            return has_snake, max_conf
+
+    # Si no detectó nada (boxes es None o vacío)
     return False, 0.0
 
 
