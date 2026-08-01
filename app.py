@@ -105,8 +105,13 @@ if input_method == "📁 Subir Archivo":
 else:
     image_file = st.camera_input("Toma una fotografía de la serpiente")
 
-# Umbral estricto para la detección
-PRESENCE_THRESHOLD = 0.85
+# Umbral para la detección de presencia.
+# NOTA: como es un clasificador binario (snake / no_snake), la confianza de la
+# clase ganadora ES la probabilidad de "snake". Un umbral de 0.85 es muy
+# exigente y descartaba como "no serpiente" fotos donde el modelo sí acertaba
+# pero con menor certeza (ángulos difíciles, distancia, iluminación). Se baja
+# a 0.60; ajusta este valor según lo que veas en tus propias pruebas.
+PRESENCE_THRESHOLD = 0.60
 VENOM_THRESHOLD = 0.50
 
 # --- PROCESAMIENTO Y EJECUCIÓN DEL PIPELINE ---
