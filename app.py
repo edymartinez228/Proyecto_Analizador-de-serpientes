@@ -46,8 +46,15 @@ def get_presence_model():
     if not selected_path:
         existing = os.listdir("models") if os.path.exists("models") else "Carpeta 'models' no encontrada"
         raise FileNotFoundError(f"❌ No se encontró el modelo YOLOv8 de presencia (.pt). Archivos disponibles en 'models/': {existing}")
+    
+    model = load_presence_model(selected_path)
+    
+    # Imprimir información en la consola de Streamlit para diagnóstico
+    print(f"--> Modelo de presencia cargado desde: {selected_path}")
+    if hasattr(model, "names"):
+        print(f"--> Clases registradas en el modelo: {model.names}")
         
-    return load_presence_model(selected_path)
+    return model
 
 
 @st.cache_resource
@@ -117,11 +124,10 @@ if image_file is not None:
     st.divider()
     st.subheader("🖼️ Imagen a Analizar")
     
-    # 1. Cargar imagen y normalizar orientación EXIF (típico en dispositivos móviles)
+    # 1. Cargar imagen y normalizar orientación EXIF
     image = Image.open(image_file).convert("RGB")
     image = ImageOps.exif_transpose(image)
     
-    # Renderizar en la interfaz respetando el tamaño de pantalla
     st.image(image, caption="Imagen cargada", use_container_width=True)
     
     with st.spinner("Analizando la imagen con los modelos de IA..."):
@@ -136,7 +142,14 @@ if image_file is not None:
             st.subheader("📊 Resultados del Análisis")
 
             if not has_snake:
-                st.warning(f"⚠️ No se detectó ninguna serpiente en la imagen (Confianza de coincidencia: {presence_prob*100:.1f}%).")
+                if presence_prob > 0:
+                    st.warning(
+                        f"⚠️ Se detectó una coincidencia baja ({presence_prob*100:.1f}%), "
+                        f"pero es inferior al umbral requerido ({PRESENCE_THRESHOLD*100:.0f}%)."
+                    )
+                else:
+                    st.warning(f"⚠️ No se detectó ninguna serpiente en la imagen (Confianza de coincidencia: {presence_prob*100:.1f}%).")
+                
                 st.info("💡 **Consejo:** Acércate un poco más al objetivo o asegúrate de enfocar bien al reptil y contar con buena iluminación.")
             
             else:
@@ -188,10 +201,10 @@ if image_file is not None:
                     st.divider()
                     st.subheader("🔥 Mapa de Atención (Grad-CAM)")
                     st.info("Visualización de las regiones clave en las que se enfocó el modelo para determinar la especie.")
-                
+                    
                     with st.spinner("Generando mapa de calor Grad-CAM..."):
                         cam_image = generate_gradcam(species_model, image_np)
-                
+                        
                         col_orig, col_cam = st.columns(2)
                         with col_orig:
                             st.image(image, caption="Imagen Original", use_container_width=True)
