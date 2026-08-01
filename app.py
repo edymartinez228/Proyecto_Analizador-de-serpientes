@@ -212,26 +212,27 @@ if image_file is not None:
 
     st.write("")
 
-    # --- LÓGICA DE VALIDACIÓN DE SEGURIDAD Y CONTRADICCIÓN ---
+    # --- CONTROL DE CONTRADICCIÓN Y VALIDACIÓN CRUZADA ---
     top_raw_name = top_predictions[0]["raw_name"]
     safety_check = cross_validate_venom_risk(top_raw_name, is_venomous)
 
-    # Evaluación explicita del valor definitivo:
-    # Se PRIORIZA siempre el resultado del modelo de veneno (o la alerta de seguridad)
+    # El veredicto final prioritario se toma siempre de la evaluación de veneno
     final_is_venomous = is_venomous
 
-    # Si la validación cruzada detectó una contradicción/alerta
+    # APARTADO ESPECIAL: Notificación de Contradicción / Falso Positivo
     if safety_check["warning_triggered"]:
-        st.warning(
-            f"⚠️ **ALERTA DE SEGURIDAD / POSIBLE FALSO POSITIVO:**\n\n"
-            f"{safety_check['warning_message']}\n\n"
-            f"👉 **Por protocolo de precaución se toma prioritariamente la predicción del modelo de veneno.** Mantén la distancia y extrema precauciones."
+        st.error(
+            f"🚨 **APARTADO DE SEGURIDAD: DETECTADA CONTRADICCIÓN ENTRE MODELOS**\n\n"
+            f"Existe una discrepancia entre la especie identificada (**{species_name}**) y la probabilidad de veneno calculada.\n\n"
+            f"⚠️ **Atención:** En este caso, ante la posibilidad de que la clasificación de la especie sea un **falso positivo**, "
+            f"el sistema ha tomado prioritariamente los **aspectos indicativos del detector de veneno** ({venom_prob*100:.1f}% de riesgo).\n\n"
+            f"👉 **Recomendación:** Mantén la distancia y actúa como si la serpiente representara un riesgo real."
         )
 
     # --- RESULTADOS DESTACADOS (TARJETAS) ---
     col_venom, col_species = st.columns(2, gap="medium")
 
-    # Tarjeta de Veneno (Muestra siempre el diagnóstico prioritario del modelo de veneno)
+    # Tarjeta de Veneno (Muestra el valor final prioritario)
     with col_venom:
         card_class = "danger" if final_is_venomous else "safe"
         badge_class = "badge-danger" if final_is_venomous else "badge-safe"
@@ -242,7 +243,7 @@ if image_file is not None:
             <div class="metric-card {card_class}">
                 <div class="card-label">Diagnóstico de Peligrosidad (Prioritario)</div>
                 <div class="card-value">{status_text}</div>
-                <span class="card-badge {badge_class}">{venom_prob*100:.1f}% Certeza de Veneno</span>
+                <span class="card-badge {badge_class}">{venom_prob*100:.1f}% Indicador de Veneno</span>
             </div>
             """,
             unsafe_allow_html=True,
@@ -264,7 +265,6 @@ if image_file is not None:
     st.write("")
 
     # --- RECOMENDACIONES DE SEGURIDAD ---
-    # Si hubo contradicción, priorizamos las recomendaciones de seguridad
     recommendations_to_display = (
         safety_check["recommendations"]
         if safety_check["warning_triggered"] and safety_check.get("recommendations")
