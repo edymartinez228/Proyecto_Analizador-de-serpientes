@@ -13,10 +13,8 @@ import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torchvision import models
+from torchvision import models, transforms
 from PIL import Image
-import albumentations as A
-from albumentations.pytorch import ToTensorV2
 
 import tensorflow as tf
 from ultralytics import YOLO
@@ -309,19 +307,18 @@ def load_class_names(json_path: str = "modelo_especie_out/class_names.json") -> 
     return raw
 
 # ---------------------------------------------------------------------------
-# Preprocesamiento Adaptativo
+# Preprocesamiento Adaptativo (Uso de torchvision.transforms)
 # ---------------------------------------------------------------------------
 def preprocess_for_torch(image_rgb: np.ndarray, target_size: int = IMG_SIZE_SPECIES) -> torch.Tensor:
     """Adapta cualquier resolución al target_size deseado respetando la relación de aspecto."""
     padded_img = resize_aspect_ratio_pad(image_rgb, target_size=target_size)
     
-    eval_transform = A.Compose([
-        A.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
-        ToTensorV2(),
+    eval_transform = transforms.Compose([
+        transforms.ToTensor(),  # Convierte la imagen [0, 255] np.uint8 a tensor [0.0, 1.0]
+        transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD)
     ])
     
-    augmented = eval_transform(image=padded_img)
-    tensor = augmented["image"].unsqueeze(0).to(DEVICE)
+    tensor = eval_transform(padded_img).unsqueeze(0).to(DEVICE)
     return tensor
 
 
