@@ -175,6 +175,23 @@ TRADUCCION_ESPECIES = {
     "Xenochrophis piscator": "Serpiente de Agua de Cuello Rayado"
 }
 
+RECOMENDACIONES_VENENO = {
+    "que_hacer": [
+        "Mantén la calma y aleja a la persona del animal para evitar otra mordedura.",
+        "Quita anillos, pulseras, relojes o ropa ajustada del miembro afectado antes de que empiece la hinchazón.",
+        "Lava la herida con suavidad usando agua y jabón.",
+        "Inmoviliza la extremidad mordida y mantenla en una posición cómoda, preferiblemente a nivel del corazón o ligeramente por debajo.",
+        "Toma nota de la hora del accidente y, si es seguro y posible desde una distancia prudente, recuerda los colores o la forma de la serpiente para describirla al personal médico."
+    ],
+    "nunca_hacer": [
+        "No apliques torniquetes ni amarres la extremidad.",
+        "No cortes la herida ni intentes succionar el veneno con la boca.",
+        "No apliques hielo, compresas frías o calientes, ni uses remedios caseros o químicos como alcohol.",
+        "No des medicamentos ni analgésicos (como aspirina o ibuprofeno) por vía oral, ya que pueden empeorar el riesgo de hemorragia.",
+        "No intentes cazar o atrapar a la serpiente."
+    ]
+}
+
 # ---------------------------------------------------------------------------
 # Procesamiento Adaptativo (Letterboxing)
 # ---------------------------------------------------------------------------
@@ -385,38 +402,32 @@ def overlay_heatmap(original_rgb: np.ndarray, cam: np.ndarray, alpha: float = 0.
 # ---------------------------------------------------------------------------
 def predict_presence(model, image_np: np.ndarray, threshold: float = 0.50):
     """
-    Inferencia garantizada para YOLOv8 en Streamlit Cloud:
-    Guarda la imagen en disco temporalmente para forzar a Ultralytics 
-    a decodificar la imagen desde cero sin errores de memoria o canales.
+    Inferencia garantizada para YOLOv8 en Streamlit Cloud mediante archivo temporal.
     """
     temp_path = "/tmp/temp_streamlit_yolo.jpg"
     
     try:
-        # Guardar array como JPG estándar en disco
         if not isinstance(image_np, np.ndarray):
             image_np = np.array(image_np)
             
         img_pil = Image.fromarray(image_np)
         img_pil.save(temp_path, format="JPEG", quality=95)
 
-        # Inferencia directamente desde la ruta del archivo
         results = model.predict(source=temp_path, verbose=False)
 
         if results and len(results) > 0:
             probs = results[0].probs
             if probs is not None:
-                # Modelo de CLASIFICACIÓN (YOLOv8-cls): clases {0: 'no_snake', 1: 'snake'}
                 names = results[0].names
                 snake_idx = next(
                     (idx for idx, name in names.items() if name.lower() == "snake"),
-                    1  # fallback: índice 1 según el checkpoint entrenado
+                    1
                 )
                 snake_conf = float(probs.data[snake_idx])
 
                 print(f"--> [DEBUG YOLO] Clasificación exitosa. Confianza 'snake': {snake_conf:.4f}")
                 return snake_conf >= threshold, snake_conf
 
-            # Fallback por si en el futuro se usa un modelo de DETECCIÓN en vez de clasificación
             boxes = results[0].boxes
             if boxes is not None and len(boxes) > 0 and boxes.conf is not None:
                 confidences = boxes.conf.cpu().numpy()
@@ -433,7 +444,6 @@ def predict_presence(model, image_np: np.ndarray, threshold: float = 0.50):
         return False, 0.0
 
     finally:
-        # Limpieza del archivo temporal
         if os.path.exists(temp_path):
             os.remove(temp_path)
 
@@ -464,13 +474,21 @@ def predict_species(model: nn.Module, image_rgb: np.ndarray, json_path: str = "m
     return top_pred["spanish_name"], top_pred["probability"], predictions
 
 
+def get_venom_recommendations() -> dict:
+    """Devuelve las recomendaciones médica estructuradas para casos de presencia de veneno."""
+    return RECOMENDACIONES_VENENO
+
+
 def predict_venom(model, image_rgb: np.ndarray, threshold: float = 0.5):
-    """Clasifica veneno en 224x224 manteniendo la relación de aspecto."""
+    """Clasifica veneno en 224x224 manteniendo la relación de aspecto e incluye recomendaciones."""
     x = preprocess_for_keras(image_rgb, target_size=IMG_SIZE_DEFAULT)
     raw_output = model.predict(x, verbose=0)
     prob_venomous = float(raw_output[0][0])
     is_venomous = prob_venomous >= threshold
-    return is_venomous, prob_venomous
+    
+    recommendations = RECOMENDACIONES_VENENO if is_venomous else None
+
+    return is_venomous, prob_venomous, recommendations
 
 
 def cross_validate_venom_risk(species_raw_name: str, is_venomous_pred: bool) -> dict:
@@ -480,6 +498,7 @@ def cross_validate_venom_risk(species_raw_name: str, is_venomous_pred: bool) -> 
     
     warning_triggered = False
     warning_message = ""
+    recommendations = None
 
     if is_known_venomous_species and not is_venomous_pred:
         warning_triggered = True
@@ -489,10 +508,15 @@ def cross_validate_venom_risk(species_raw_name: str, is_venomous_pred: bool) -> 
             "aunque el clasificador de veneno indicó un riesgo bajo. "
             "Mantenga la distancia y tome precauciones extremas."
         )
+        recommendations = RECOMENDACIONES_VENENO
+
+    elif is_venomous_pred:
+        recommendations = RECOMENDACIONES_VENENO
 
     return {
         "warning_triggered": warning_triggered,
-        "warning_message": warning_message
+        "warning_message": warning_message,
+        "recommendations": recommendations
     }
 
 
