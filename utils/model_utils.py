@@ -14,7 +14,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torchvision import models
-from PIL import Image, ImageOps
+from PIL import Image
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 
@@ -24,11 +24,18 @@ from ultralytics import YOLO
 # ---------------------------------------------------------------------------
 # Configuración global
 # ---------------------------------------------------------------------------
-IMG_SIZE = 224
+IMG_SIZE_DEFAULT = 224
+IMG_SIZE_SPECIES = 260  # Resolución optimizada con la que entrenaste EfficientNet-B2
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD = [0.229, 0.224, 0.225]
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+# Palabras clave para detectar veneno en el nombre de la especie
+VENOMOUS_KEYWORDS = [
+    "cobra", "viper", "mamba", "krait", "coral", "rattlesnake", "taipan",
+    "copperhead", "cottonmouth", "boomslang", "cantil", "cascabel", "víbora"
+]
 
 # Diccionario de traducción inglés -> español para las clases del modelo
 TRADUCCION_ESPECIES = {
@@ -119,23 +126,18 @@ TRADUCCION_ESPECIES = {
 # ---------------------------------------------------------------------------
 def resize_aspect_ratio_pad(image_rgb: np.ndarray, target_size: int = 224) -> np.ndarray:
     """
-    Redimensiona cualquier imagen (miniaturas, panorámicas o 4K) a target_size x target_size
-    preservando la relación de aspecto exacta mediante bordes neutros (Padding).
-    Evita la distorsión anatómica del objeto.
+    Redimensiona cualquier imagen a target_size x target_size
+    preservando la relación de aspecto mediante bordes neutros (Padding).
     """
     h, w = image_rgb.shape[:2]
     scale = target_size / max(h, w)
     new_w = int(w * scale)
     new_h = int(h * scale)
 
-    # Selección del algoritmo de interpolación según subida o bajada de escala
     interp = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_CUBIC
     resized = cv2.resize(image_rgb, (new_w, new_h), interpolation=interp)
 
-    # Crear lienzo cuadrado con relleno gris neutro (128, 128, 128)
     canvas = np.full((target_size, target_size, 3), 128, dtype=np.uint8)
-    
-    # Centrar la imagen dentro del lienzo
     top = (target_size - new_h) // 2
     left = (target_size - new_w) // 2
     canvas[top:top + new_h, left:left + new_w] = resized
@@ -151,23 +153,25 @@ def load_presence_model(weights_path: str):
     return model
 
 
-def load_species_model(weights_path: str, num_classes: int = 80) -> nn.Module:
-    """Carga el modelo EfficientNet-B0 de especie."""
-    model = models.efficientnet_b0(weights=None)
-    checkpoint = torch.load(weights_path, map_location=torch.device('cpu'), weights_only=False)
+def load_species_model(weights_path: str, num_classes: int = None) -> nn.Module:
+    """Carga el modelo EfficientNet-B2 de especie."""
+    checkpoint = torch.load(weights_path, map_location=DEVICE)
     
-    if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
-        state_dict = checkpoint['model_state_dict']
-    elif isinstance(checkpoint, dict):
-        state_dict = checkpoint
+    if isinstance(checkpoint, dict):
+        state_dict = checkpoint.get('state_dict', checkpoint.get('model_state_dict', checkpoint))
     else:
-        checkpoint.to(DEVICE).eval()
-        return checkpoint
+        state_dict = checkpoint.state_dict() if hasattr(checkpoint, 'state_dict') else checkpoint
 
-    checkpoint_num_classes = state_dict['classifier.1.weight'].shape[0] if 'classifier.1.weight' in state_dict else num_classes
-    
+    # Detección automática del número de clases desde las matrices del .pth si no se especificó
+    if num_classes is None:
+        if 'classifier.1.weight' in state_dict:
+            num_classes = state_dict['classifier.1.weight'].shape[0]
+        else:
+            num_classes = 10  # Valor por defecto del dataset filtrado
+
+    model = models.efficientnet_b2(weights=None)
     in_features = model.classifier[1].in_features
-    model.classifier[1] = nn.Linear(in_features, checkpoint_num_classes)
+    model.classifier[1] = nn.Linear(in_features, num_classes)
     
     model.load_state_dict(state_dict)
     model.to(DEVICE).eval()
@@ -211,12 +215,19 @@ def load_venom_model(weights_path: str = "models/modelo_veneno.weights.h5"):
         raise RuntimeError(f"Error al cargar la matriz de pesos desde {actual_path}: {e}")
 
 
-def load_class_names(json_path: str = "models/class_name.json") -> list:
+def load_class_names(json_path: str = "modelo_especie_out/class_names.json") -> list:
     """Carga los nombres de las clases desde el archivo JSON."""
-    if not os.path.exists(json_path):
+    possible_paths = [
+        json_path,
+        "modelo_especie_out/class_names.json",
+        "models/class_name.json"
+    ]
+    actual_path = next((p for p in possible_paths if os.path.exists(p)), None)
+
+    if not actual_path:
         return list(TRADUCCION_ESPECIES.keys())
         
-    with open(json_path, "r", encoding="utf-8") as f:
+    with open(actual_path, "r", encoding="utf-8") as f:
         raw = json.load(f)
     
     if isinstance(raw, list):
@@ -229,9 +240,9 @@ def load_class_names(json_path: str = "models/class_name.json") -> list:
 # ---------------------------------------------------------------------------
 # Preprocesamiento Adaptativo
 # ---------------------------------------------------------------------------
-def preprocess_for_torch(image_rgb: np.ndarray) -> torch.Tensor:
-    """Adapta cualquier resolución a 224x224 preservando aspecto y normalizando PyTorch."""
-    padded_img = resize_aspect_ratio_pad(image_rgb, target_size=IMG_SIZE)
+def preprocess_for_torch(image_rgb: np.ndarray, target_size: int = IMG_SIZE_SPECIES) -> torch.Tensor:
+    """Adapta cualquier resolución al target_size deseado respetando la relación de aspecto."""
+    padded_img = resize_aspect_ratio_pad(image_rgb, target_size=target_size)
     
     eval_transform = A.Compose([
         A.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
@@ -243,9 +254,9 @@ def preprocess_for_torch(image_rgb: np.ndarray) -> torch.Tensor:
     return tensor
 
 
-def preprocess_for_keras(image_rgb: np.ndarray, size: int = 224) -> np.ndarray:
-    """Adapta cualquier resolución a 224x224 preservando aspecto y normalizando [0,1] Keras."""
-    padded_img = resize_aspect_ratio_pad(image_rgb, target_size=size)
+def preprocess_for_keras(image_rgb: np.ndarray, target_size: int = IMG_SIZE_DEFAULT) -> np.ndarray:
+    """Adapta cualquier resolución al tamaño Keras preservando aspecto y normalizando [0,1]."""
+    padded_img = resize_aspect_ratio_pad(image_rgb, target_size=target_size)
     img = padded_img.astype("float32") / 255.0
     return np.expand_dims(img, axis=0)
 
@@ -253,7 +264,7 @@ def preprocess_for_keras(image_rgb: np.ndarray, size: int = 224) -> np.ndarray:
 # Grad-CAM Adaptativo
 # ---------------------------------------------------------------------------
 class GradCAM:
-    """Implementación de Grad-CAM para visualizar mapas de atención."""
+    """Implementación de Grad-CAM para visualizar mapas de atención en EfficientNet."""
 
     def __init__(self, model: nn.Module, target_layer: nn.Module = None):
         self.model = model
@@ -305,76 +316,102 @@ def overlay_heatmap(original_rgb: np.ndarray, cam: np.ndarray, alpha: float = 0.
     return overlay
 
 # ---------------------------------------------------------------------------
-# Funciones de Predicción Adaptativas
+# Funciones de Predicción e Inferencia Integradas
 # ---------------------------------------------------------------------------
 def predict_presence(presence_model, image_rgb: np.ndarray, min_confidence: float = 0.60):
-    """
-    Evalúa si hay una serpiente utilizando la salida exacta del modelo YOLOv8-cls
-    entrenado con las clases [0: 'no_snake', 1: 'snake'].
-    """
+    """Evalúa si hay una serpiente utilizando YOLOv8."""
     if image_rgb is None or image_rgb.size == 0:
         raise ValueError("La imagen de entrada está vacía o no es válida.")
 
-    # 1. Ajuste de dimensiones respetando el letterbox
     target_size = int(presence_model.overrides.get("imgsz", 416))
     padded_img = resize_aspect_ratio_pad(image_rgb, target_size=target_size)
     pil_image = Image.fromarray(padded_img)
 
-    # 2. Inferencia con YOLO
     results = presence_model(pil_image, imgsz=target_size, verbose=False)[0]
-    
-    # Obtener el mapa de nombres ({0: 'no_snake', 1: 'snake'})
     names_map = results.names
     
-    # Encontrar el índice dinámicamente según el nombre de la clase
     snake_idx = None
     for idx, class_name in names_map.items():
         if str(class_name).lower().strip() == "snake":
             snake_idx = int(idx)
             break
             
-    # Si por algún motivo no la encuentra por nombre, asumimos el índice 1
     if snake_idx is None:
         snake_idx = 1
 
-    # 3. Extraer la probabilidad pura de que sea una serpiente
     all_probs = results.probs.data.cpu().numpy()
     snake_probability = float(all_probs[snake_idx])
-
-    # 4. Determinar si supera el umbral configurado
     has_snake = snake_probability >= min_confidence
 
     return has_snake, snake_probability
 
 
-def predict_species(model: nn.Module, image_rgb: np.ndarray, json_path: str = "models/class_name.json"):
-    """Identifica la especie adaptando resoluciones mediante padding."""
+def predict_species(model: nn.Module, image_rgb: np.ndarray, json_path: str = "modelo_especie_out/class_names.json", top_k: int = 3):
+    """
+    Identifica la especie en 260x260 y devuelve la especie predicha,
+    su probabilidad y el ranking Top-K de predicciones.
+    """
     class_names = load_class_names(json_path)
-    tensor = preprocess_for_torch(image_rgb)
+    tensor = preprocess_for_torch(image_rgb, target_size=IMG_SIZE_SPECIES)
     
     with torch.no_grad():
         logits = model(tensor)
         probs = F.softmax(logits, dim=1)[0].cpu().numpy()
 
-    pred_idx = int(np.argmax(probs))
-    raw_name = class_names[pred_idx] if pred_idx < len(class_names) else f"Especie_{pred_idx}"
-    spanish_name = TRADUCCION_ESPECIES.get(raw_name, raw_name)
+    top_k_count = min(top_k, len(probs))
+    top_indices = np.argsort(probs)[::-1][:top_k_count]
     
-    return spanish_name, float(probs[pred_idx])
+    predictions = []
+    for idx in top_indices:
+        raw_name = class_names[idx] if idx < len(class_names) else f"Especie_{idx}"
+        spanish_name = TRADUCCION_ESPECIES.get(raw_name, raw_name)
+        predictions.append({
+            "raw_name": raw_name,
+            "spanish_name": spanish_name,
+            "probability": float(probs[idx])
+        })
+
+    top_pred = predictions[0]
+    return top_pred["spanish_name"], top_pred["probability"], predictions
 
 
 def predict_venom(model, image_rgb: np.ndarray, threshold: float = 0.5):
-    """Clasifica veneno manteniendo la relación de aspecto en cualquier resolución."""
-    x = preprocess_for_keras(image_rgb)
+    """Clasifica veneno en 224x224 manteniendo la relación de aspecto."""
+    x = preprocess_for_keras(image_rgb, target_size=IMG_SIZE_DEFAULT)
     raw_output = model.predict(x, verbose=0)
     prob_venomous = float(raw_output[0][0])
     is_venomous = prob_venomous >= threshold
     return is_venomous, prob_venomous
 
 
+def cross_validate_venom_risk(species_raw_name: str, is_venomous_pred: bool) -> dict:
+    """
+    Validación Cruzada: Si la especie predicha es conocida por ser venenosa
+    pero el modelo de veneno dice lo contrario, genera un aviso de precaución.
+    """
+    species_lower = species_raw_name.lower()
+    is_known_venomous_species = any(kw in species_lower for kw in VENOMOUS_KEYWORDS)
+    
+    warning_triggered = False
+    warning_message = ""
+
+    if is_known_venomous_species and not is_venomous_pred:
+        warning_triggered = True
+        warning_message = (
+            f"⚠️ ADVERTENCIA DE SEGURIDAD: La especie identificada '{species_raw_name}' "
+            "pertenece a un grupo potencialmente VENENOSO, aunque el clasificador de veneno "
+            "haya dado un porcentaje bajo. Tome precauciones y mantenga la distancia."
+        )
+
+    return {
+        "warning_triggered": warning_triggered,
+        "warning_message": warning_message
+    }
+
+
 def generate_gradcam(model: nn.Module, image_rgb: np.ndarray) -> np.ndarray:
     """Genera la visualización Grad-CAM proyectada exactamente en la dimensión original."""
-    tensor = preprocess_for_torch(image_rgb)
+    tensor = preprocess_for_torch(image_rgb, target_size=IMG_SIZE_SPECIES)
     grad_cam = GradCAM(model=model)
     
     with torch.enable_grad():
