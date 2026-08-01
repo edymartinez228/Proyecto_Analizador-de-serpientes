@@ -1,43 +1,137 @@
 import os
-import streamlit as st
-from PIL import Image, ImageOps
 import numpy as np
+from PIL import Image, ImageOps
+import streamlit as st
 
 # Importar funciones de utilidad desde utils/model_utils.py
 from utils.model_utils import (
-    load_venom_model,
-    load_species_model,
-    predict_venom,
-    predict_species,
     cross_validate_venom_risk,
-    generate_gradcam
+    generate_gradcam,
+    load_species_model,
+    load_venom_model,
+    predict_species,
+    predict_venom,
 )
 
 # --- CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
-    page_title="Analizador de Serpientes",
+    page_title="Snakely | Analizador de Serpientes",
     page_icon="🐍",
     layout="centered",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="collapsed",
 )
 
-# Estilos CSS para ocultar el control de la barra lateral
-st.markdown("""
+# --- ESTILOS CSS CUSTOM (MODERNO Y ELEGANTE) ---
+st.markdown(
+    """
     <style>
+        /* Ocultar barra lateral */
         [data-testid="collapsedControl"] { display: none; }
+        
+        /* Tipografía general y fondo limpio */
+        .main {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+
+        /* Hero Header */
+        .hero-title {
+            font-size: 2.2rem;
+            font-weight: 800;
+            background: linear-gradient(90deg, #10B981 0%, #059669 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.2rem;
+        }
+        .hero-subtitle {
+            font-size: 1rem;
+            color: #64748B;
+            margin-bottom: 1.5rem;
+        }
+
+        /* Custom Cards para Metricas */
+        .metric-card {
+            background-color: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(229, 231, 235, 0.3);
+            border-radius: 16px;
+            padding: 20px;
+            text-align: center;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.03);
+            backdrop-filter: blur(8px);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        .metric-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.06);
+        }
+        
+        .metric-card.danger {
+            border-left: 5px solid #EF4444;
+            background: linear-gradient(135deg, rgba(239, 68, 68, 0.05) 0%, rgba(255, 255, 255, 0) 100%);
+        }
+        .metric-card.safe {
+            border-left: 5px solid #10B981;
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.05) 0%, rgba(255, 255, 255, 0) 100%);
+        }
+        
+        .card-label {
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #6B7280;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+        .card-value {
+            font-size: 1.4rem;
+            font-weight: 700;
+            margin-bottom: 6px;
+        }
+        .card-badge {
+            display: inline-block;
+            font-size: 0.8rem;
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-weight: 600;
+        }
+        .badge-danger { background-color: #FEE2E2; color: #991B1B; }
+        .badge-safe { background-color: #D1FAE5; color: #065F46; }
+        .badge-info { background-color: #E0F2FE; color: #075985; }
+
+        /* Contenedor de Recomendaciones */
+        .recom-container-do {
+            background-color: rgba(16, 185, 129, 0.04);
+            border: 1px solid rgba(16, 185, 129, 0.2);
+            border-radius: 12px;
+            padding: 18px;
+        }
+        .recom-container-dont {
+            background-color: rgba(239, 68, 68, 0.04);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            border-radius: 12px;
+            padding: 18px;
+        }
     </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 
-# --- CARGA DE MODELOS CON CACHÉ Y BÚSQUEDA FLEXIBLE ---
+# --- CARGA DE MODELOS CON CACHÉ ---
+
 
 @st.cache_resource
 def get_venom_model():
     path = "models/modelo_veneno.weights.h5"
     if not os.path.exists(path):
-        existing = os.listdir("models") if os.path.exists("models") else "Carpeta 'models' no encontrada"
-        raise FileNotFoundError(f"❌ No se encontró '{path}'. Archivos en 'models/': {existing}")
-        
+        existing = (
+            os.listdir("models")
+            if os.path.exists("models")
+            else "Carpeta 'models' no encontrada"
+        )
+        raise FileNotFoundError(
+            f"❌ No se encontró '{path}'. Archivos en 'models/': {existing}"
+        )
+
     return load_venom_model(path)
 
 
@@ -45,131 +139,205 @@ def get_venom_model():
 def get_species_model():
     path = "models/modelo_especie.pth"
     if not os.path.exists(path):
-        existing = os.listdir("models") if os.path.exists("models") else "Carpeta 'models' no encontrada"
-        raise FileNotFoundError(f"❌ No se encontró '{path}'. Archivos en 'models/': {existing}")
-        
+        existing = (
+            os.listdir("models")
+            if os.path.exists("models")
+            else "Carpeta 'models' no encontrada"
+        )
+        raise FileNotFoundError(
+            f"❌ No se encontró '{path}'. Archivos en 'models/': {existing}"
+        )
+
     return load_species_model(path)
 
 
 # --- INTERFAZ PRINCIPAL ---
 
-st.title("🐍 Analizador e Identificador de Serpientes")
-st.write("Sube una imagen para evaluar si es venenosa e identificar su especie exacta.")
+st.markdown('<div class="hero-title">🐍 Snakely AI</div>', unsafe_allow_html=True)
+st.markdown(
+    '<div class="hero-subtitle">Plataforma inteligente para la identificación de especies y diagnóstico de peligrosidad en ofidios.</div>',
+    unsafe_allow_html=True,
+)
 
-st.divider()
-
-# Opciones de control
-col_upload, col_gradcam = st.columns([2, 1])
+# Opciones de control en diseño limpio
+col_upload, col_gradcam = st.columns([2.2, 1.2], gap="medium")
 
 with col_upload:
     image_file = st.file_uploader(
-        "Sube una imagen de una serpiente (JPG, PNG, JPEG)", 
-        type=["jpg", "png", "jpeg"]
+        "Sube una imagen (JPG, PNG)", type=["jpg", "png", "jpeg"]
     )
 
 with col_gradcam:
-    show_gradcam = st.checkbox("Mostrar mapa Grad-CAM", value=False)
+    st.write(" ")
+    st.write(" ")
+    show_gradcam = st.checkbox("🔥 Visualizar Grad-CAM", value=False)
 
-# Umbral de veneno configurable
 VENOM_THRESHOLD = 0.50
 
 # --- PROCESAMIENTO Y EJECUCIÓN DEL PIPELINE ---
 
 if image_file is not None:
-    st.divider()
-    st.subheader("🖼️ Imagen a Analizar")
-    
-    # 1. Cargar imagen y normalizar orientación EXIF
+    st.markdown("---")
+
+    # 1. Cargar imagen y normalizar orientación
     image = Image.open(image_file).convert("RGB")
     image = ImageOps.exif_transpose(image)
-    
-    st.image(image, caption="Imagen cargada", use_container_width=True)
-    
-    with st.spinner("Analizando la imagen con los modelos de IA..."):
+
+    # Visualización preliminar en columna centrada
+    col_img_left, col_img_center, col_img_right = st.columns([1, 2, 1])
+    with col_img_center:
+        st.image(
+            image,
+            caption="Imagen de la muestra",
+            use_container_width=True,
+        )
+
+    # 2. Análisis con Spinner Inteligente
+    with st.status(
+        "🔮 Analizando imagen con redes neuronales...", expanded=True
+    ) as status:
         try:
-            # 2. Convertir a NumPy en espacio RGB puro
             image_np = np.array(image)
 
-            # Cargar modelos de clasificación
+            status.write("🧠 Cargando arquitecturas de IA...")
             venom_model = get_venom_model()
             species_model = get_species_model()
 
-            # 3. Análisis de Veneno
+            status.write("⚡ Evaluando patrones de toxicidad...")
             is_venomous, venom_prob, venom_recommendations = predict_venom(
                 venom_model, image_np, VENOM_THRESHOLD
             )
-            
-            # 4. Clasificación de Especie con Ranking Top-K
-            species_name, species_prob, top_predictions = predict_species(species_model, image_np, top_k=5)
-            
-            # 5. Métricas Principales en Pantalla
-            st.subheader("📊 Resultados del Análisis")
-            col_venom, col_species = st.columns(2)
-            
-            with col_venom:
-                st.metric(
-                    label="Peligrosidad / Veneno",
-                    value="VENENOSA ⚠️" if is_venomous else "NO VENENOSA 🟢",
-                    delta=f"{venom_prob*100:.1f}% probabilidad"
-                )
-            
-            with col_species:
-                st.metric(
-                    label="Especie Detectada",
-                    value=species_name,
-                    delta=f"{species_prob*100:.1f}% coincidencia"
-                )
 
-            # 6. Validación Cruzada de Seguridad (Especie vs Veneno)
-            top_raw_name = top_predictions[0]["raw_name"]
-            safety_check = cross_validate_venom_risk(top_raw_name, is_venomous)
-            if safety_check["warning_triggered"]:
-                st.warning(safety_check["warning_message"])
-
-            # 7. Renderizado de Recomendaciones Médicas
-            recommendations_to_display = (
-                safety_check["recommendations"] 
-                if safety_check["warning_triggered"] 
-                else venom_recommendations
+            status.write("🔍 Identificando taxón y especie...")
+            species_name, species_prob, top_predictions = predict_species(
+                species_model, image_np, top_k=5
             )
 
-            if recommendations_to_display:
-                st.error("🚨 **ATENCIÓN: RECOMENDACIONES DE PRIMEROS AUXILIOS**")
-                
-                col_do, col_dont = st.columns(2)
-                
-                with col_do:
-                    st.markdown("### ✅ **Qué HACER**")
-                    for item in recommendations_to_display["que_hacer"]:
-                        st.markdown(f"- {item}")
-                        
-                with col_dont:
-                    st.markdown("### ❌ **Lo que NUNCA debes hacer**")
-                    for item in recommendations_to_display["nunca_hacer"]:
-                        st.markdown(f"- {item}")
-
-            # 8. Desglose del Top de Predicciones de Especie
-            with st.expander("📊 Ver Top de Coincidencias de Especies", expanded=True):
-                st.write("Ranking de las especies más probables identificadas por el modelo:")
-                for idx, pred in enumerate(top_predictions, 1):
-                    prob_percent = pred['probability'] * 100
-                    st.write(f"**{idx}. {pred['spanish_name']}** (`{pred['raw_name']}`) — {prob_percent:.2f}%")
-                    st.progress(min(pred['probability'], 1.0))
-
-            # 9. Mapa de Atención (Grad-CAM)
-            if show_gradcam:
-                st.divider()
-                st.subheader("🔥 Mapa de Atención (Grad-CAM)")
-                st.info("Visualización de las regiones clave en las que se enfocó el modelo para determinar la especie.")
-                
-                with st.spinner("Generando mapa de calor Grad-CAM..."):
-                    cam_image = generate_gradcam(species_model, image_np)
-                    
-                    col_orig, col_cam = st.columns(2)
-                    with col_orig:
-                        st.image(image, caption="Imagen Original", use_container_width=True)
-                    with col_cam:
-                        st.image(cam_image, caption="Mapa de Calor (Atención)", use_container_width=True)
+            status.update(
+                label="✅ Análisis completado con éxito",
+                state="complete",
+                expanded=False,
+            )
 
         except Exception as e:
-            st.error(f"Ocurrió un error durante el procesamiento: {str(e)}")
+            status.update(label="❌ Error durante la inferencia", state="error")
+            st.error(f"Detalle del error: {str(e)}")
+            st.stop()
+
+    st.write("")
+
+    # --- RESULTADOS DESTACADOS (TARJETAS) ---
+    col_venom, col_species = st.columns(2, gap="medium")
+
+    # Tarjeta de Veneno
+    with col_venom:
+        card_class = "danger" if is_venomous else "safe"
+        badge_class = "badge-danger" if is_venomous else "badge-safe"
+        status_text = "VENENOSA ⚠️" if is_venomous else "NO VENENOSA 🟢"
+
+        st.markdown(
+            f"""
+            <div class="metric-card {card_class}">
+                <div class="card-label">Diagnóstico de Peligrosidad</div>
+                <div class="card-value">{status_text}</div>
+                <span class="card-badge {badge_class}">{venom_prob*100:.1f}% de Certeza</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    # Tarjeta de Especie
+    with col_species:
+        st.markdown(
+            f"""
+            <div class="metric-card safe" style="border-left: 5px solid #0284C7;">
+                <div class="card-label">Especie Predominante</div>
+                <div class="card-value" style="font-size: 1.2rem;">{species_name}</div>
+                <span class="card-badge badge-info">{species_prob*100:.1f}% Coincidencia</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    st.write("")
+
+    # 3. Validación Cruzada de Seguridad
+    top_raw_name = top_predictions[0]["raw_name"]
+    safety_check = cross_validate_venom_risk(top_raw_name, is_venomous)
+
+    if safety_check["warning_triggered"]:
+        st.warning(f"⚠️ **Inconsistencia Detectada:** {safety_check['warning_message']}")
+
+    # 4. Renderizado de Recomendaciones Médicas
+    recommendations_to_display = (
+        safety_check["recommendations"]
+        if safety_check["warning_triggered"]
+        else venom_recommendations
+    )
+
+    if recommendations_to_display:
+        st.write("")
+        st.markdown("### 🚑 Protocolo de Primeros Auxilios")
+
+        col_do, col_dont = st.columns(2, gap="medium")
+
+        with col_do:
+            st.markdown('<div class="recom-container-do">', unsafe_allow_html=True)
+            st.markdown("#### ✅ **Acciones Recomendadas**")
+            for item in recommendations_to_display["que_hacer"]:
+                st.markdown(f"• {item}")
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        with col_dont:
+            st.markdown('<div class="recom-container-dont">', unsafe_allow_html=True)
+            st.markdown("#### ❌ **Acciones Prohibidas**")
+            for item in recommendations_to_display["nunca_hacer"]:
+                st.markdown(f"• {item}")
+            st.markdown("</div>", unsafe_allow_html=True)
+
+    st.write("")
+    st.write("")
+
+    # --- PESTAÑAS (TABS) PARA DETALLES AVANZADOS ---
+    tab_rankings, tab_gradcam = st.tabs(
+        ["📊 Ranking de Especies", "🔥 Mapa de Atención (Grad-CAM)"]
+    )
+
+    with tab_rankings:
+        st.caption(
+            "Distribución de probabilidad de las 5 especies más afines detectadas por la red:"
+        )
+        for idx, pred in enumerate(top_predictions, 1):
+            prob_percent = pred["probability"] * 100
+            st.write(
+                f"**{idx}. {pred['spanish_name']}** _({pred['raw_name']})_"
+            )
+            st.progress(
+                min(pred["probability"], 1.0), text=f"{prob_percent:.2f}% Coincidencia"
+            )
+
+    with tab_gradcam:
+        if show_gradcam:
+            st.caption(
+                "Las regiones más cálidas (rojas/amarillas) indican en qué partes de la imagen se basó el modelo para clasificar la especie."
+            )
+            with st.spinner("Generando interpretabilidad visual..."):
+                cam_image = generate_gradcam(species_model, image_np)
+
+                c1, c2 = st.columns(2, gap="medium")
+                with c1:
+                    st.image(
+                        image,
+                        caption="Original",
+                        use_container_width=True,
+                    )
+                with c2:
+                    st.image(
+                        cam_image,
+                        caption="Enfoque de la IA",
+                        use_container_width=True,
+                    )
+        else:
+            st.info(
+                "💡 Activa la casilla **'Visualizar Grad-CAM'** en la parte superior para desplegar la interpretabilidad visual del modelo."
+            )
