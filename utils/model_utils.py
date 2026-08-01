@@ -26,6 +26,7 @@ IMAGENET_STD = [0.229, 0.224, 0.225]
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+# Palabras clave para identificación de especies venenosas
 VENOMOUS_KEYWORDS = [
     "agkistrodon", "austrelaps", "bitis", "bothriechis", "bothrops", "bungarus",
     "causus", "crotalus", "daboia", "dendroaspis", "laticauda", "micrurus",
@@ -33,6 +34,14 @@ VENOMOUS_KEYWORDS = [
     "pseudonaja", "rhabdophis", "sistrurus", "trimeresurus", "tropidolaemus", "vipera",
     "cobra", "viper", "mamba", "krait", "coral", "rattlesnake", "taipan",
     "copperhead", "cottonmouth", "boomslang", "cantil", "cascabel", "víbora"
+]
+
+# Lista de géneros/palabras clave DEFINITIVAMENTE NO VENENOSOS para anular falsos positivos
+NON_VENOMOUS_KEYWORDS = [
+    "arizona", "boa", "bogertophis", "charina", "corallus", "coronella",
+    "diadophis", "elaphe", "epicrates", "eunectes", "heterodon", "lampropeltis",
+    "masticophis", "nerodia", "opheodrys", "pituophis", "python", "pantherophis",
+    "rhinoclemmys", "salvadora", "senticolis", "thamnophis", "atractus"
 ]
 
 TRADUCCION_ESPECIES = {
@@ -436,31 +445,52 @@ def predict_venom(model, image_rgb: np.ndarray, threshold: float = 0.5):
     return is_venomous, prob_venomous, recommendations
 
 
-def cross_validate_venom_risk(species_raw_name: str, is_venomous_pred: bool) -> dict:
-    """Validación Cruzada de Seguridad (Especie vs Veneno)."""
+def cross_validate_venom_risk(species_raw_name: str, is_venomous_pred: bool, species_prob: float = 1.0) -> dict:
+    """
+    Validación Cruzada Bidireccional de Seguridad:
+    1. Si es especie venenosa pero el modelo de veneno dio bajo -> ALERTA DE RIESGO.
+    2. Si es especie NO venenosa (con suficiente confianza) pero el modelo de veneno dio positivo -> CORRIGE FALSO POSITIVO.
+    """
     species_lower = species_raw_name.lower()
-    is_known_venomous_species = any(kw in species_lower for kw in VENOMOUS_KEYWORDS)
     
+    is_known_venomous = any(kw in species_lower for kw in VENOMOUS_KEYWORDS)
+    is_known_non_venomous = any(kw in species_lower for kw in NON_VENOMOUS_KEYWORDS)
+    
+    final_is_venomous = is_venomous_pred
     warning_triggered = False
     warning_message = ""
+    info_message = ""
     recommendations = None
 
-    if is_known_venomous_species and not is_venomous_pred:
+    # CASO 1: Especie Venenosa conocida, pero el modelo de veneno no la detectó
+    if is_known_venomous and not is_venomous_pred:
+        final_is_venomous = True
         warning_triggered = True
         warning_message = (
             f"⚠️ ADVERTENCIA DE SEGURIDAD: La especie identificada '{species_raw_name}' "
-            "pertenece a un género o grupo de serpientes potencialmente VENENOSAS, "
-            "aunque el clasificador de veneno indicó un riesgo bajo. "
-            "Mantenga la distancia y tome precauciones extremas."
+            "pertenece a un grupo potencialmente VENENOSO, aunque el clasificador dio un valor bajo. "
+            "Se aplican medidas de precaución extrema."
         )
         recommendations = RECOMENDACIONES_VENENO
 
-    elif is_venomous_pred:
+    # CASO 2: Especie NO Venenosa conocida (ej. Arizona elegans), pero el modelo de veneno dio falso positivo
+    elif is_known_non_venomous and is_venomous_pred and species_prob >= 0.40:
+        final_is_venomous = False
+        info_message = (
+            f"ℹ️ **Corrección de Falso Positivo:** Aunque el patrón visual sugería veneno, "
+            f"la especie fue identificada como **{species_raw_name}**, la cual es una especie **NO VENENOSA**."
+        )
+        recommendations = None
+
+    # CASO 3: Es venenosa confirmada
+    elif final_is_venomous:
         recommendations = RECOMENDACIONES_VENENO
 
     return {
+        "final_is_venomous": final_is_venomous,
         "warning_triggered": warning_triggered,
         "warning_message": warning_message,
+        "info_message": info_message,
         "recommendations": recommendations
     }
 
