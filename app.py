@@ -11,6 +11,7 @@ from utils.model_utils import (
     predict_presence,
     predict_venom,
     predict_species,
+    cross_validate_venom_risk,
     generate_gradcam
 )
 
@@ -62,6 +63,7 @@ def get_venom_model():
 @st.cache_resource
 def get_species_model():
     paths = [
+        "modelo_especie_out/modelo_especie.pth",
         "models/modelo_especie.pth",
         "models/modelo_especie.pt",
         "models/modelo_especie_efficientnet.pth"
@@ -70,15 +72,15 @@ def get_species_model():
     
     if not selected_path:
         existing = os.listdir("models") if os.path.exists("models") else "Carpeta 'models' no encontrada"
-        raise FileNotFoundError(f"❌ No se encontró el modelo PyTorch de especies (.pth/.pt). Archivos disponibles en 'models/': {existing}")
+        raise FileNotFoundError(f"❌ No se encontró el modelo PyTorch de especies (.pth/.pt). Archivos revisados: {paths}")
         
     return load_species_model(selected_path)
 
 
 # --- INTERFAZ PRINCIPAL ---
 
-st.title("🐍 Analizador Identificador de Serpientes")
-st.write("Sube una imagen o toma una fotografía para detectar si hay una serpiente, evaluar si es venenosa e identificar su especie.")
+st.title("🐍 Analizador e Identificador de Serpientes")
+st.write("Sube una imagen o toma una fotografía para detectar si hay una serpiente, evaluar si es venenosa e identificar su especie exacta.")
 
 st.divider()
 
@@ -105,12 +107,7 @@ if input_method == "📁 Subir Archivo":
 else:
     image_file = st.camera_input("Toma una fotografía de la serpiente")
 
-# Umbral para la detección de presencia.
-# NOTA: como es un clasificador binario (snake / no_snake), la confianza de la
-# clase ganadora ES la probabilidad de "snake". Un umbral de 0.85 es muy
-# exigente y descartaba como "no serpiente" fotos donde el modelo sí acertaba
-# pero con menor certeza (ángulos difíciles, distancia, iluminación). Se baja
-# a 0.60; ajusta este valor según lo que veas en tus propias pruebas.
+# Umbrales de confianza configurables
 PRESENCE_THRESHOLD = 0.60
 VENOM_THRESHOLD = 0.50
 
@@ -120,7 +117,7 @@ if image_file is not None:
     st.divider()
     st.subheader("🖼️ Imagen a Analizar")
     
-    # 1. Cargar imagen y normalizar orientación EXIF (típico en celulares)
+    # 1. Cargar imagen y normalizar orientación EXIF (típico en dispositivos móviles)
     image = Image.open(image_file).convert("RGB")
     image = ImageOps.exif_transpose(image)
     
@@ -129,7 +126,7 @@ if image_file is not None:
     
     with st.spinner("Analizando la imagen con los modelos de IA..."):
         try:
-            # 2. Convertir a NumPy en espacio RGB puro (sin deformar dimensiones)
+            # 2. Convertir a NumPy en espacio RGB puro
             image_np = np.array(image)
 
             # 3. Cargar modelo de presencia y evaluar
@@ -145,16 +142,17 @@ if image_file is not None:
             else:
                 st.success(f"✅ Serpiente detectada con una confianza del {presence_prob*100:.1f}%.")
                 
-                # Cargar el resto de modelos solo si pasó la prueba de presencia
+                # Cargar modelos de clasificación
                 venom_model = get_venom_model()
                 species_model = get_species_model()
 
                 # 4. Análisis de Veneno
                 is_venomous, venom_prob = predict_venom(venom_model, image_np, VENOM_THRESHOLD)
                 
-                # 5. Clasificación de Especie
-                species_name, species_prob = predict_species(species_model, image_np)
+                # 5. Clasificación de Especie con Ranking Top-K
+                species_name, species_prob, top_predictions = predict_species(species_model, image_np, top_k=3)
                 
+                # 6. Métricas Principales en Pantalla
                 col_venom, col_species = st.columns(2)
                 
                 with col_venom:
@@ -171,11 +169,25 @@ if image_file is not None:
                         delta=f"{species_prob*100:.1f}% coincidencia"
                     )
 
-                # 6. Mapa de Atención (Grad-CAM)
+                # 7. Validación Cruzada de Seguridad (Especie vs Veneno)
+                top_raw_name = top_predictions[0]["raw_name"]
+                safety_check = cross_validate_venom_risk(top_raw_name, is_venomous)
+                if safety_check["warning_triggered"]:
+                    st.warning(safety_check["warning_message"])
+
+                # 8. Desglose del Top de Predicciones de Especie
+                with st.expander("📊 Ver Top de Coincidencias de Especies", expanded=True):
+                    st.write("Ranking de las especies más probables identificadas por el modelo:")
+                    for idx, pred in enumerate(top_predictions, 1):
+                        prob_percent = pred['probability'] * 100
+                        st.write(f"**{idx}. {pred['spanish_name']}** (`{pred['raw_name']}`) — {prob_percent:.2f}%")
+                        st.progress(min(pred['probability'], 1.0))
+
+                # 9. Mapa de Atención (Grad-CAM)
                 if show_gradcam:
                     st.divider()
                     st.subheader("🔥 Mapa de Atención (Grad-CAM)")
-                    st.info("Visualización de las regiones clave en las que se enfocó la red neuronal para realizar la clasificación.")
+                    st.info("Visualización de las regiones clave en las que se enfocó el modelo para determinar la especie.")
                 
                     with st.spinner("Generando mapa de calor Grad-CAM..."):
                         cam_image = generate_gradcam(species_model, image_np)
@@ -184,7 +196,7 @@ if image_file is not None:
                         with col_orig:
                             st.image(image, caption="Imagen Original", use_container_width=True)
                         with col_cam:
-                            st.image(cam_image, caption="Mapa de Calor (Atención del Modelo)", use_container_width=True)
+                            st.image(cam_image, caption="Mapa de Calor (Atención)", use_container_width=True)
 
         except Exception as e:
             st.error(f"Ocurrió un error durante el procesamiento: {str(e)}")
