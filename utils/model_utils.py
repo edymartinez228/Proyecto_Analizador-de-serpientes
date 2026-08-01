@@ -13,7 +13,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torchvision import models
-
+from PIL import ImageOps, Image
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 
@@ -276,37 +276,53 @@ def overlay_heatmap(original_rgb: np.ndarray, cam: np.ndarray, alpha: float = 0.
 # ---------------------------------------------------------------------------
 # Funciones de predicción de alto nivel para app.py
 # ---------------------------------------------------------------------------
+def preprocess_high_res_image(image_rgb: np.ndarray, target_size: int = 416) -> np.ndarray:
+    """
+    Toma una imagen (NumPy RGB) de alta resolución, la recorta/rellena
+    manteniendo la relación de aspecto y la ajusta al tamaño objetivo del modelo.
+    evitando la deformación que causa falsos positivos.
+    """
+    # Convertir a PIL para manipular relación de aspecto de forma limpia
+    pil_img = Image.fromarray(image_rgb)
+    
+    # Hacer un crop cuadrado al centro (conserva el objeto principal sin deformar)
+    width, height = pil_img.size
+    min_dim = min(width, height)
+    
+    left = (width - min_dim) / 2
+    top = (height - min_dim) / 2
+    right = (width + min_dim) / 2
+    bottom = (height + min_dim) / 2
+    
+    pil_img_cropped = pil_img.crop((left, top, right, bottom))
+    
+    # Redimensionar suavemente con suavizado bilinear al tamaño objetivo
+    pil_img_resized = pil_img_cropped.resize((target_size, target_size), Image.Resampling.BILINEAR)
+    
+    return np.array(pil_img_resized)
+
 def predict_presence(presence_model, image_rgb, min_confidence=0.85):
     """
-    Evalúa la presencia usando YOLO Classification con filtro estricto anti-falsos positivos.
+    Evalúa la presencia usando YOLO Classification con preprocesamiento anti-deformación.
     """
-    # Resize explícito y conversión BGR para YOLO
-    img_resized = cv2.resize(image_rgb, (416, 416))
+    # 1. Preprocesar la foto de alta resolución sin deformarla
+    img_processed = preprocess_high_res_image(image_rgb, target_size=416)
     
-    # Inferencia
-    results = presence_model(img_resized, verbose=False)[0]
+    # 2. Inferencia en YOLO
+    results = presence_model(img_processed, verbose=False)[0]
     
     probs = results.probs
     top1_idx = int(probs.top1)
     top1_class = str(results.names[top1_idx]).lower().strip()
     top1_conf = float(probs.top1conf.cpu())
 
-    # LÓGICA ESTRICTA:
-    # 1. Si predijo 'no_snake', es definitivamente falso -> has_snake = False
-    # 2. Si predijo 'snake', exige que la confianza supere min_confidence (ej. 85%)
+    # 3. Evaluación estricta de la clase
     if top1_class == "snake" and top1_conf >= min_confidence:
         has_snake = True
-        return has_snake, top1_conf
-    elif top1_class == "snake" and top1_conf < min_confidence:
-        # Detectó rasgos de serpiente pero con baja certeza
-        has_snake = False
-        return has_snake, top1_conf
     else:
-        # Predijo 'no_snake' (gatos, personas, objetos)
         has_snake = False
-        # Devolvemos la probabilidad de que SEA serpiente (que es 1 - confianza de no_snake)
-        snake_probability = 1.0 - top1_conf
-        return has_snake, snake_probability
+
+    return has_snake, top1_conf
 
 
 def predict_species(model: nn.Module, image_rgb: np.ndarray, json_path: str = "models/class_name.json"):
