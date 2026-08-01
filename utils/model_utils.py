@@ -310,16 +310,32 @@ def overlay_heatmap(original_rgb: np.ndarray, cam: np.ndarray, alpha: float = 0.
 def predict_presence(presence_model, image_rgb: np.ndarray, min_confidence: float = 0.85):
     """
     Evalúa presencia en imágenes de cualquier resolución.
-    Utiliza PIL de forma nativa para evitar inversión de color RGB/BGR en YOLO.
+
+    IMPORTANTE: Si se le pasa la imagen "cruda" a un modelo YOLO de clasificación,
+    Ultralytics aplica internamente Resize(lado corto) + CenterCrop(imgsz). Eso
+    RECORTA los bordes de cualquier imagen que no sea cuadrada (fotos verticales
+    de celular, panorámicas, capturas de cámara web), pudiendo cortar la serpiente
+    fuera del encuadre si no está perfectamente centrada. Por eso aquí aplicamos
+    manualmente el mismo letterbox (padding gris, sin recortar ni deformar) que ya
+    se usa para los modelos de veneno/especie, y lo dejamos ya del tamaño exacto
+    que espera el modelo (imgsz) para que el CenterCrop interno de YOLO no tenga
+    nada que recortar.
     """
     if image_rgb is None or image_rgb.size == 0:
         raise ValueError("La imagen de entrada está vacía o no es válida.")
 
-    # Convertir array NumPy a PIL para preservar colores RGB originales
-    pil_image = Image.fromarray(image_rgb)
-    
-    # Inferencia en YOLO (YOLO maneja internamente el rescalado a su resolution imgsz)
-    results = presence_model(pil_image, verbose=False)[0]
+    # Tamaño de entrada con el que se entrenó el modelo (416 en este proyecto,
+    # pero lo leemos del propio modelo para no depender de un valor fijo)
+    target_size = int(presence_model.overrides.get("imgsz", 416))
+
+    # Letterbox: redimensiona preservando aspecto y rellena con gris neutro,
+    # igual que resize_aspect_ratio_pad ya hace para los otros modelos
+    padded_img = resize_aspect_ratio_pad(image_rgb, target_size=target_size)
+    pil_image = Image.fromarray(padded_img)
+
+    # imgsz=target_size explícito: como la imagen ya viene en ese tamaño exacto,
+    # el Resize/CenterCrop interno de YOLO se vuelve un no-op
+    results = presence_model(pil_image, imgsz=target_size, verbose=False)[0]
     
     probs = results.probs
     top1_idx = int(probs.top1)
