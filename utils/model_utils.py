@@ -384,23 +384,44 @@ def overlay_heatmap(original_rgb: np.ndarray, cam: np.ndarray, alpha: float = 0.
 # Funciones de Predicción e Inferencia Integradas
 # ---------------------------------------------------------------------------
 def predict_presence(model, image_np: np.ndarray, threshold: float = 0.50):
-    """Inferencia para YOLOv8 con conversión explícita de formato a BGR."""
-    if not isinstance(image_np, np.ndarray):
-        image_np = np.array(image_np)
-
-    image_bgr = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
-    results = model.predict(source=image_bgr, verbose=False)
+    """
+    Inferencia garantizada para YOLOv8 en Streamlit Cloud:
+    Guarda la imagen en disco temporalmente para forzar a Ultralytics 
+    a decodificar la imagen desde cero sin errores de memoria o canales.
+    """
+    temp_path = "/tmp/temp_streamlit_yolo.jpg"
     
-    if results and len(results) > 0:
-        boxes = results[0].boxes
-        if boxes is not None and len(boxes) > 0 and boxes.conf is not None:
-            confidences = boxes.conf.cpu().numpy()
-            max_conf = float(np.max(confidences))
+    try:
+        # Guardar array como JPG estándar en disco
+        if not isinstance(image_np, np.ndarray):
+            image_np = np.array(image_np)
             
-            has_snake = max_conf >= threshold
-            return has_snake, max_conf
+        img_pil = Image.fromarray(image_np)
+        img_pil.save(temp_path, format="JPEG", quality=95)
 
-    return False, 0.0
+        # Inferencia directamente desde la ruta del archivo
+        results = model.predict(source=temp_path, verbose=False)
+
+        if results and len(results) > 0:
+            boxes = results[0].boxes
+            if boxes is not None and len(boxes) > 0 and boxes.conf is not None:
+                confidences = boxes.conf.cpu().numpy()
+                max_conf = float(np.max(confidences))
+                
+                print(f"--> [DEBUG YOLO] Detección exitosa. Confianza máx: {max_conf:.4f}")
+                return max_conf >= threshold, max_conf
+
+        print("--> [DEBUG YOLO] Sin detecciones (0.0%).")
+        return False, 0.0
+
+    except Exception as e:
+        print(f"--> [ERROR YOLO]: {e}")
+        return False, 0.0
+
+    finally:
+        # Limpieza del archivo temporal
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
 
 
 def predict_species(model: nn.Module, image_rgb: np.ndarray, json_path: str = "modelo_especie_out/class_names.json", top_k: int = 5):
