@@ -14,9 +14,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torchvision import models, transforms
-from PIL import Image
 import tensorflow as tf
-from ultralytics import YOLO
 
 # ---------------------------------------------------------------------------
 # Configuración global
@@ -215,11 +213,6 @@ def resize_aspect_ratio_pad(image_rgb: np.ndarray, target_size: int = 224) -> np
 # ---------------------------------------------------------------------------
 # Carga de Modelos
 # ---------------------------------------------------------------------------
-def load_presence_model(model_path: str):
-    """Carga el modelo YOLOv8 para detección de presencia."""
-    return YOLO(model_path)
-
-
 def load_species_model(weights_path: str, num_classes: int = None) -> nn.Module:
     """Carga el modelo EfficientNet con detección adaptativa de arquitectura."""
     checkpoint = torch.load(weights_path, map_location=DEVICE)
@@ -398,56 +391,8 @@ def overlay_heatmap(original_rgb: np.ndarray, cam: np.ndarray, alpha: float = 0.
     return overlay
 
 # ---------------------------------------------------------------------------
-# Funciones de Predicción e Inferencia Integradas
+# Funciones de Predicción e Inferencia
 # ---------------------------------------------------------------------------
-def predict_presence(model, image_np: np.ndarray, threshold: float = 0.50):
-    """
-    Inferencia garantizada para YOLOv8 en Streamlit Cloud mediante archivo temporal.
-    """
-    temp_path = "/tmp/temp_streamlit_yolo.jpg"
-    
-    try:
-        if not isinstance(image_np, np.ndarray):
-            image_np = np.array(image_np)
-            
-        img_pil = Image.fromarray(image_np)
-        img_pil.save(temp_path, format="JPEG", quality=95)
-
-        results = model.predict(source=temp_path, verbose=False)
-
-        if results and len(results) > 0:
-            probs = results[0].probs
-            if probs is not None:
-                names = results[0].names
-                snake_idx = next(
-                    (idx for idx, name in names.items() if name.lower() == "snake"),
-                    1
-                )
-                snake_conf = float(probs.data[snake_idx])
-
-                print(f"--> [DEBUG YOLO] Clasificación exitosa. Confianza 'snake': {snake_conf:.4f}")
-                return snake_conf >= threshold, snake_conf
-
-            boxes = results[0].boxes
-            if boxes is not None and len(boxes) > 0 and boxes.conf is not None:
-                confidences = boxes.conf.cpu().numpy()
-                max_conf = float(np.max(confidences))
-
-                print(f"--> [DEBUG YOLO] Detección exitosa. Confianza máx: {max_conf:.4f}")
-                return max_conf >= threshold, max_conf
-
-        print("--> [DEBUG YOLO] Sin detecciones (0.0%).")
-        return False, 0.0
-
-    except Exception as e:
-        print(f"--> [ERROR YOLO]: {e}")
-        return False, 0.0
-
-    finally:
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
-
-
 def predict_species(model: nn.Module, image_rgb: np.ndarray, json_path: str = "modelo_especie_out/class_names.json", top_k: int = 5):
     """Identifica la especie y devuelve el ranking Top-K de predicciones traducidas."""
     class_names = load_class_names(json_path)
@@ -475,7 +420,7 @@ def predict_species(model: nn.Module, image_rgb: np.ndarray, json_path: str = "m
 
 
 def get_venom_recommendations() -> dict:
-    """Devuelve las recomendaciones médica estructuradas para casos de presencia de veneno."""
+    """Devuelve las recomendaciones médicas estructuradas para casos de presencia de veneno."""
     return RECOMENDACIONES_VENENO
 
 
