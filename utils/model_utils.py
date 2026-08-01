@@ -386,27 +386,36 @@ def overlay_heatmap(original_rgb: np.ndarray, cam: np.ndarray, alpha: float = 0.
 # ---------------------------------------------------------------------------
 # Funciones de Predicción e Inferencia Integradas
 # ---------------------------------------------------------------------------
+# En utils/model_utils.py
+
 def predict_presence(model, image_np: np.ndarray, threshold: float = 0.60):
     """
-    Realiza la detección con YOLOv8 de forma segura contra NoneTypes.
-    Devuelve (has_snake: bool, max_confidence: float).
+    Inferencia con YOLOv8. Revisa todas las detecciones sin importar la clase.
     """
-    # Inferencia con YOLOv8
+    # 1. Asegurar que la imagen sea un array NumPy en formato uint8
+    if not isinstance(image_np, np.ndarray):
+        image_np = np.array(image_np)
+
+    # 2. Inferencia con YOLO (forzando verbose=False para no saturar logs)
     results = model.predict(source=image_np, verbose=False)
     
-    # Comprobar de forma segura que existan resultados y detecciones
-    if results and len(results) > 0 and getattr(results[0], 'boxes', None) is not None:
+    if results and len(results) > 0:
         boxes = results[0].boxes
         
-        if len(boxes) > 0 and getattr(boxes, 'conf', None) is not None and len(boxes.conf) > 0:
-            # Extraer la máxima confianza encontrada en la imagen
-            max_conf = float(boxes.conf.max().cpu().numpy())
+        # Si YOLO encontró al menos una caja
+        if boxes is not None and len(boxes) > 0 and boxes.conf is not None:
+            # Obtener la confianza máxima encontrada
+            confidences = boxes.conf.cpu().numpy()
+            max_conf = float(np.max(confidences))
+            
+            # Imprimir en la consola para depuración
+            print(f"--> [DEBUG YOLO] Cajas detectadas: {len(boxes)} | Máxima confianza: {max_conf:.4f}")
+            
             has_snake = max_conf >= threshold
             return has_snake, max_conf
 
-    # Si no detectó ningún bounding box
+    print("--> [DEBUG YOLO] No se detectó ninguna caja en la imagen.")
     return False, 0.0
-
 
 def predict_species(model: nn.Module, image_rgb: np.ndarray, json_path: str = "modelo_especie_out/class_names.json", top_k: int = 5):
     """Identifica la especie y devuelve el ranking Top-K de predicciones traducidas."""
