@@ -106,7 +106,7 @@ else:
     image_file = st.camera_input("Toma una fotografía de la serpiente")
 
 # Umbral estricto para evitar falsos positivos en rostros y paredes
-PRESENCE_THRESHOLD = 0.85
+PRESENCE_THRESHOLD = 0.90
 VENOM_THRESHOLD = 0.50
 
 # --- PROCESAMIENTO Y EJECUCIÓN DEL PIPELINE ---
