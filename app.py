@@ -228,23 +228,26 @@ if image_file is not None:
 
     st.write("")
 
-    # --- 2. LÓGICA DE DETECCIÓN DE CONTRADICCIÓN ENTRE MODELOS ---
+    # --- 2. VALIDACIÓN CRUZADA DE SEGURIDAD Y CONTRADICCIÓN ---
     top_raw_name = top_predictions[0]["raw_name"]
-    species_lower = top_raw_name.lower()
 
-    # Importar o evaluar si pertenece a la lista de palabras de especies venenosas
+    # Ejecutamos la validación cruzada para definir safety_check
+    safety_check = cross_validate_venom_risk(
+        species_raw_name=top_raw_name,
+        is_venomous_pred=is_venomous,
+        species_prob=species_prob
+    )
+
+    # Evaluar si hay contradicción para el mensaje de advertencia visual
+    species_lower = top_raw_name.lower()
     from utils.model_utils import VENOMOUS_KEYWORDS
     is_species_known_venomous = any(kw in species_lower for kw in VENOMOUS_KEYWORDS)
 
-    # CONTRADICCIÓN TIPO A: Especie Taxonómicamente NO Venenosa + Modelo de Veneno indica VENENOSA
     is_false_positive_risk = (not is_species_known_venomous) and is_venomous
-
-    # CONTRADICCIÓN TIPO B: Especie Taxonómicamente VENENOSA + Modelo de Veneno indica NO VENENOSA
     is_false_negative_risk = is_species_known_venomous and (not is_venomous)
-
     has_contradiction = is_false_positive_risk or is_false_negative_risk
 
-    # EL MENSAJE DE ADVERTENCIA DINÁMICO (Aplica a CUALQUIER especie)
+    # Despliegue de alertas dinámicas en la interfaz
     if has_contradiction:
         if is_false_positive_risk:
             st.error(
@@ -264,14 +267,17 @@ if image_file is not None:
                 f"👉 **Recomendación:** Se aplican protocolos de seguridad de forma preventiva."
             )
         st.write("")
+
     # --- 3. RESULTADOS DESTACADOS (TARJETAS) ---
     col_venom, col_species = st.columns(2, gap="medium")
 
-    # Tarjeta de Veneno
+    # Tarjeta de Veneno (Actualizada por el dictamen final de seguridad)
+    final_is_venomous = safety_check.get("final_is_venomous", is_venomous)
+
     with col_venom:
-        card_class = "danger" if is_venomous else "safe"
-        badge_class = "badge-danger" if is_venomous else "badge-safe"
-        status_text = "VENENOSA ⚠️" if is_venomous else "NO VENENOSA 🟢"
+        card_class = "danger" if final_is_venomous else "safe"
+        badge_class = "badge-danger" if final_is_venomous else "badge-safe"
+        status_text = "VENENOSA ⚠️" if final_is_venomous else "NO VENENOSA 🟢"
 
         st.markdown(
             f"""
