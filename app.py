@@ -228,19 +228,28 @@ if image_file is not None:
 
     st.write("")
 
-    # --- 2. APARTADO DE MENSAJE POR CONTRADICCIÓN ENTRE MODELOS ---
-    # (Ubicado exactamente entre la imagen/proceso y los resultados)
+    # --- 2. LÓGICA DE DETECCIÓN DE CONTRADICCIÓN ENTRE MODELOS ---
     top_raw_name = top_predictions[0]["raw_name"]
     safety_check = cross_validate_venom_risk(top_raw_name, is_venomous)
-    final_is_venomous = is_venomous
 
-    # Evaluamos si hay contradicción (ej. Especie clasificada como no venenosa vs Modelo de veneno positivo, o viceversa)
-    if safety_check["warning_triggered"]:
+    # Lista de palabras clave que identifican especies típicamente no venenosas que pueden sufrir falsos positivos
+    NON_VENOMOUS_SPECIES_KEYWORDS = ["arizona", "elegans", "lampropeltis", "pituophis", "pantherophis", "coluber", "natrix", "false"]
+    
+    # Comprobar si la especie detectada es una de las no venenosas pero el modelo de veneno dio positivo
+    is_non_venomous_species = any(kw in top_raw_name.lower() or kw in species_name.lower() for kw in NON_VENOMOUS_SPECIES_KEYWORDS)
+    
+    # Condición de contradicción: o lo detectó safety_check o hay discrepancia entre la especie y el modelo de veneno
+    has_contradiction = safety_check["warning_triggered"] or (is_venomous and is_non_venomous_species)
+
+    # EL MENSAJE DE ADVERTENCIA (Ubicado exactamente entre la imagen y los cuadros de resultados)
+    if has_contradiction:
         st.error(
-            f"⚠️ **ADVERTENCIA: MODELOS CONTRADICTORIOS (POSIBLE FALSO POSITIVO)**\n\n"
-            f"Se detectó una discrepancia entre el modelo de especie (**{species_name}**) y el modelo de veneno.\n\n"
-            f"📌 **Criterio de Seguridad:** En caso de que la clasificación de la especie sea un **falso positivo**, "
-            f"se han tomado prioritariamente los **aspectos e indicadores del modelo de veneno** ({venom_prob*100:.1f}% de probabilidad)."
+            f"🚨 **ADVERTENCIA: MODELOS CONTRADICTORIOS (POSIBLE FALSO POSITIVO)**\n\n"
+            f"Se ha detectado una contradicción entre la especie identificada (**{species_name}**) y el detector de peligro.\n\n"
+            f"📌 **Criterio de Precaución:** Dado que los patrones cromáticos o morfológicos de la serpiente pueden causar un "
+            f"**falso positivo en la especie**, el sistema ha tomado prioritariamente las características indicativas del "
+            f"**modelo de veneno** ({venom_prob*100:.1f}% de probabilidad).\n\n"
+            f"👉 **Recomendación:** Trata el ejemplar como potencialmente peligroso y mantén la distancia."
         )
         st.write("")
 
@@ -249,9 +258,9 @@ if image_file is not None:
 
     # Tarjeta de Veneno
     with col_venom:
-        card_class = "danger" if final_is_venomous else "safe"
-        badge_class = "badge-danger" if final_is_venomous else "badge-safe"
-        status_text = "VENENOSA ⚠️" if final_is_venomous else "NO VENENOSA 🟢"
+        card_class = "danger" if is_venomous else "safe"
+        badge_class = "badge-danger" if is_venomous else "badge-safe"
+        status_text = "VENENOSA ⚠️" if is_venomous else "NO VENENOSA 🟢"
 
         st.markdown(
             f"""
@@ -279,10 +288,10 @@ if image_file is not None:
 
     st.write("")
 
-    # --- 4. RECOMENDACIONES EN CUADROS VERDE Y ROJO COMPLETOS ---
+    # --- 4. RECOMENDACIONES EN CUADROS VERDE Y ROJO ENVOLVENTES ---
     recommendations_to_display = (
         safety_check["recommendations"]
-        if safety_check["warning_triggered"] and safety_check.get("recommendations")
+        if safety_check.get("warning_triggered") and safety_check.get("recommendations")
         else venom_recommendations
     )
 
