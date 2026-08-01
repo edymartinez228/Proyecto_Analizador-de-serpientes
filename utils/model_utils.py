@@ -389,33 +389,25 @@ def overlay_heatmap(original_rgb: np.ndarray, cam: np.ndarray, alpha: float = 0.
 # ---------------------------------------------------------------------------
 # Funciones de Predicción e Inferencia Integradas
 # ---------------------------------------------------------------------------
+def predict_presence(model, image_rgb: np.ndarray, threshold: float = 0.60):
+    """
+    Detecta si hay una serpiente en la imagen usando el modelo YOLOv8 de presencia.
+    Devuelve (has_snake: bool, confidence: float) con la mayor confianza detectada.
+    """
+    results = model.predict(source=image_rgb, verbose=False)
+    result = results[0]
+
+    if result.boxes is None or len(result.boxes) == 0:
+        return False, 0.0
+
+    confidences = result.boxes.conf.cpu().numpy()
+    max_conf = float(confidences.max()) if len(confidences) > 0 else 0.0
+    has_snake = max_conf >= threshold
+
+    return has_snake, max_conf
+
+
 def predict_species(model: nn.Module, image_rgb: np.ndarray, json_path: str = "modelo_especie_out/class_names.json", top_k: int = 5):
-    """Identifica la especie y devuelve el ranking Top-K (por defecto Top 5) de predicciones traducidas."""
-    class_names = load_class_names(json_path)
-    tensor = preprocess_for_torch(image_rgb, target_size=IMG_SIZE_SPECIES)
-    
-    with torch.no_grad():
-        logits = model(tensor)
-        probs = F.softmax(logits, dim=1)[0].cpu().numpy()
-
-    top_k_count = min(top_k, len(probs))
-    top_indices = np.argsort(probs)[::-1][:top_k_count]
-    
-    predictions = []
-    for idx in top_indices:
-        raw_name = class_names[idx] if idx < len(class_names) else f"Especie_{idx}"
-        spanish_name = TRADUCCION_ESPECIES.get(raw_name, raw_name)
-        predictions.append({
-            "raw_name": raw_name,
-            "spanish_name": spanish_name,
-            "probability": float(probs[idx])
-        })
-
-    top_pred = predictions[0]
-    return top_pred["spanish_name"], top_pred["probability"], predictions
-
-
-def predict_species(model: nn.Module, image_rgb: np.ndarray, json_path: str = "modelo_especie_out/class_names.json", top_k: int = 3):
     """Identifica la especie y devuelve el ranking Top-K de predicciones traducidas."""
     class_names = load_class_names(json_path)
     tensor = preprocess_for_torch(image_rgb, target_size=IMG_SIZE_SPECIES)
