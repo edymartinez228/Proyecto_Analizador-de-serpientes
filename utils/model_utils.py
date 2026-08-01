@@ -389,32 +389,30 @@ def overlay_heatmap(original_rgb: np.ndarray, cam: np.ndarray, alpha: float = 0.
 # ---------------------------------------------------------------------------
 # Funciones de Predicción e Inferencia Integradas
 # ---------------------------------------------------------------------------
-def predict_presence(presence_model, image_rgb: np.ndarray, min_confidence: float = 0.60):
-    """Evalúa si hay una serpiente utilizando YOLOv8."""
-    if image_rgb is None or image_rgb.size == 0:
-        raise ValueError("La imagen de entrada está vacía o no es válida.")
-
-    target_size = int(presence_model.overrides.get("imgsz", 416))
-    padded_img = resize_aspect_ratio_pad(image_rgb, target_size=target_size)
-    pil_image = Image.fromarray(padded_img)
-
-    results = presence_model(pil_image, imgsz=target_size, verbose=False)[0]
-    names_map = results.names
+def predict_species(model: nn.Module, image_rgb: np.ndarray, json_path: str = "modelo_especie_out/class_names.json", top_k: int = 5):
+    """Identifica la especie y devuelve el ranking Top-K (por defecto Top 5) de predicciones traducidas."""
+    class_names = load_class_names(json_path)
+    tensor = preprocess_for_torch(image_rgb, target_size=IMG_SIZE_SPECIES)
     
-    snake_idx = None
-    for idx, class_name in names_map.items():
-        if str(class_name).lower().strip() == "snake":
-            snake_idx = int(idx)
-            break
-            
-    if snake_idx is None:
-        snake_idx = 1
+    with torch.no_grad():
+        logits = model(tensor)
+        probs = F.softmax(logits, dim=1)[0].cpu().numpy()
 
-    all_probs = results.probs.data.cpu().numpy()
-    snake_probability = float(all_probs[snake_idx])
-    has_snake = snake_probability >= min_confidence
+    top_k_count = min(top_k, len(probs))
+    top_indices = np.argsort(probs)[::-1][:top_k_count]
+    
+    predictions = []
+    for idx in top_indices:
+        raw_name = class_names[idx] if idx < len(class_names) else f"Especie_{idx}"
+        spanish_name = TRADUCCION_ESPECIES.get(raw_name, raw_name)
+        predictions.append({
+            "raw_name": raw_name,
+            "spanish_name": spanish_name,
+            "probability": float(probs[idx])
+        })
 
-    return has_snake, snake_probability
+    top_pred = predictions[0]
+    return top_pred["spanish_name"], top_pred["probability"], predictions
 
 
 def predict_species(model: nn.Module, image_rgb: np.ndarray, json_path: str = "modelo_especie_out/class_names.json", top_k: int = 3):
