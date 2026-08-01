@@ -282,7 +282,7 @@ def predict_presence(presence_model, image_rgb, min_confidence=0.85):
     Aplica un umbral rígido para evitar falsos positivos en rostros y paredes.
     """
     # 1. Inferencia
-    results = presence_model(image_rgb, imgsz=416, verbose=False)[0]
+    results = presence_model(image_np, imgsz=416, verbose=False)[0]
     
     # 2. Obtener probabilidades y nombres de clases
     probs = results.probs
