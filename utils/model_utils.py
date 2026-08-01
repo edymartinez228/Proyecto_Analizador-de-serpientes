@@ -204,10 +204,8 @@ def resize_aspect_ratio_pad(image_rgb: np.ndarray, target_size: int = 224) -> np
 # ---------------------------------------------------------------------------
 # Carga de Modelos
 # ---------------------------------------------------------------------------
-def load_presence_model(weights_path: str):
-    """Carga el modelo de detección de presencia YOLOv8 (.pt)."""
-    model = YOLO(weights_path)
-    return model
+def load_presence_model(model_path):
+    return YOLO(model_path)
 
 
 def load_species_model(weights_path: str, num_classes: int = None) -> nn.Module:
