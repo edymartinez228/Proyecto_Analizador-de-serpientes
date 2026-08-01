@@ -1,8 +1,9 @@
 """
 utils/model_utils.py
 ---------------------
-Módulo de utilidades: carga de modelos y funciones de inferencia
-adaptadas para soportar cualquier resolución de entrada.
+Módulo de utilidades: Carga de modelos y funciones de inferencia
+con soporte adaptativo de resolución (Letterboxing) para prevenir
+deformaciones y falsos positivos.
 """
 
 import json
@@ -29,7 +30,7 @@ IMAGENET_STD = [0.229, 0.224, 0.225]
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# Diccionario de traducción inglés -> español para las 80 clases del modelo
+# Diccionario de traducción inglés -> español para las clases del modelo
 TRADUCCION_ESPECIES = {
     "Abaco island boa": "Boa de la Isla Ábaco",
     "Amazon tree boa": "Boa arborícola del Amazonas",
@@ -114,46 +115,38 @@ TRADUCCION_ESPECIES = {
 }
 
 # ---------------------------------------------------------------------------
-# Utilidades Adaptativas para Cualquier Resolución
+# Procesamiento Adaptativo de Proporciones (Letterboxing)
 # ---------------------------------------------------------------------------
 def resize_aspect_ratio_pad(image_rgb: np.ndarray, target_size: int = 224) -> np.ndarray:
     """
-    Redimensiona cualquier imagen (sea 100x100 o 4K) a target_size x target_size
-    manteniendo la relación de aspecto original mediante padding (Letterboxing).
-    Previene la distorsión de objetos.
+    Redimensiona cualquier imagen (miniaturas, panorámicas o 4K) a target_size x target_size
+    preservando la relación de aspecto exacta mediante bordes neutros (Padding).
+    Evita la distorsión anatómica del objeto.
     """
     h, w = image_rgb.shape[:2]
     scale = target_size / max(h, w)
     new_w = int(w * scale)
     new_h = int(h * scale)
 
-    # Selección de algoritmo de interpolación según subida o bajada de escala
+    # Selección del algoritmo de interpolación según subida o bajada de escala
     interp = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_CUBIC
     resized = cv2.resize(image_rgb, (new_w, new_h), interpolation=interp)
 
     # Crear lienzo cuadrado con relleno gris neutro (128, 128, 128)
     canvas = np.full((target_size, target_size, 3), 128, dtype=np.uint8)
     
-    # Centrar la imagen redimensionada
+    # Centrar la imagen dentro del lienzo
     top = (target_size - new_h) // 2
     left = (target_size - new_w) // 2
     canvas[top:top + new_h, left:left + new_w] = resized
 
     return canvas
 
-
-def normalize_pil_orientation(pil_img: Image.Image) -> Image.Image:
-    """Corrige automáticamente la rotación EXIF típica en fotos de smartphones."""
-    try:
-        return ImageOps.exif_transpose(pil_img)
-    except Exception:
-        return pil_img
-
 # ---------------------------------------------------------------------------
 # Carga de Modelos
 # ---------------------------------------------------------------------------
 def load_presence_model(weights_path: str):
-    """Carga el modelo de presencia YOLOv8 (.pt)."""
+    """Carga el modelo de detección de presencia YOLOv8 (.pt)."""
     model = YOLO(weights_path)
     return model
 
@@ -234,13 +227,10 @@ def load_class_names(json_path: str = "models/class_name.json") -> list:
     return raw
 
 # ---------------------------------------------------------------------------
-# Preprocesamiento Adaptativo para Redes Neuronales
+# Preprocesamiento Adaptativo
 # ---------------------------------------------------------------------------
 def preprocess_for_torch(image_rgb: np.ndarray) -> torch.Tensor:
-    """
-    Adapta cualquier resolución manteniendo la relación de aspecto 
-    y normalizando para PyTorch/Torchvision.
-    """
+    """Adapta cualquier resolución a 224x224 preservando aspecto y normalizando PyTorch."""
     padded_img = resize_aspect_ratio_pad(image_rgb, target_size=IMG_SIZE)
     
     eval_transform = A.Compose([
@@ -254,10 +244,7 @@ def preprocess_for_torch(image_rgb: np.ndarray) -> torch.Tensor:
 
 
 def preprocess_for_keras(image_rgb: np.ndarray, size: int = 224) -> np.ndarray:
-    """
-    Adapta cualquier resolución manteniendo la relación de aspecto 
-    y normalizando [0, 1] para Keras/MobileNetV2.
-    """
+    """Adapta cualquier resolución a 224x224 preservando aspecto y normalizando [0,1] Keras."""
     padded_img = resize_aspect_ratio_pad(image_rgb, target_size=size)
     img = padded_img.astype("float32") / 255.0
     return np.expand_dims(img, axis=0)
@@ -307,7 +294,7 @@ class GradCAM:
 
 
 def overlay_heatmap(original_rgb: np.ndarray, cam: np.ndarray, alpha: float = 0.45) -> np.ndarray:
-    """Superpone el mapa de calor Grad-CAM preservando las dimensiones originales exactas de la foto."""
+    """Superpone el mapa de calor proyectando sobre la resolución original de la imagen."""
     orig_h, orig_w = original_rgb.shape[:2]
     cam_resized = cv2.resize(cam, (orig_w, orig_h), interpolation=cv2.INTER_CUBIC)
     
@@ -318,21 +305,20 @@ def overlay_heatmap(original_rgb: np.ndarray, cam: np.ndarray, alpha: float = 0.
     return overlay
 
 # ---------------------------------------------------------------------------
-# Funciones de Predicción
+# Funciones de Predicción Adaptativas
 # ---------------------------------------------------------------------------
 def predict_presence(presence_model, image_rgb: np.ndarray, min_confidence: float = 0.85):
     """
-    Evalúa la presencia en imágenes de cualquier resolución (desde miniaturas hasta 4K).
-    Conserva colores RGB y la proporción de aspecto original.
+    Evalúa presencia en imágenes de cualquier resolución.
+    Utiliza PIL de forma nativa para evitar inversión de color RGB/BGR en YOLO.
     """
     if image_rgb is None or image_rgb.size == 0:
         raise ValueError("La imagen de entrada está vacía o no es válida.")
 
-    # 1. Convertir a PIL y normalizar orientación EXIF (típico en celulares)
+    # Convertir array NumPy a PIL para preservar colores RGB originales
     pil_image = Image.fromarray(image_rgb)
-    pil_image = normalize_pil_orientation(pil_image)
-
-    # 2. Inferencia en YOLO (YOLO maneja internamente el rescalado a su resolution imgsz)
+    
+    # Inferencia en YOLO (YOLO maneja internamente el rescalado a su resolution imgsz)
     results = presence_model(pil_image, verbose=False)[0]
     
     probs = results.probs
@@ -342,14 +328,14 @@ def predict_presence(presence_model, image_rgb: np.ndarray, min_confidence: floa
     raw_class_name = str(class_names_map[top1_idx]).lower().strip()
     top1_conf = float(probs.top1conf.cpu())
 
-    # 3. Buscar el índice de la clase 'snake'
+    # Buscar índice de la clase 'snake'
     snake_class_idx = None
     for idx, name in class_names_map.items():
         if str(name).lower().strip() in ["snake", "snakes", "serpiente", "1"]:
             snake_class_idx = int(idx)
             break
 
-    # 4. Probabilidad explícita de 'snake'
+    # Extraer probabilidad real de la clase serpiente
     if snake_class_idx is not None and hasattr(probs, 'data'):
         all_probs = probs.data.cpu().numpy()
         snake_probability = float(all_probs[snake_class_idx])
@@ -357,14 +343,7 @@ def predict_presence(presence_model, image_rgb: np.ndarray, min_confidence: floa
         is_snake_top = raw_class_name in ["snake", "snakes", "serpiente", "1"]
         snake_probability = top1_conf if is_snake_top else (1.0 - top1_conf)
 
-    # --- DEBUG CONSOLA ---
-    print("\n--- [DEBUG predict_presence (Multi-Resolución)] ---")
-    print(f"Resolución Original: {pil_image.size[0]}x{pil_image.size[1]} px")
-    print(f"Clase predicha (Top 1): '{raw_class_name}' | Confianza: {top1_conf:.4f}")
-    print(f"Probabilidad de SERPIENTE: {snake_probability:.4f}")
-    print("----------------------------------------------------\n")
-
-    # 5. Evaluación de decisión final
+    # Evaluación final de presencia
     is_snake_class = raw_class_name in ["snake", "snakes", "serpiente", "1"]
     has_snake = is_snake_class and (top1_conf >= min_confidence)
 
@@ -372,7 +351,7 @@ def predict_presence(presence_model, image_rgb: np.ndarray, min_confidence: floa
 
 
 def predict_species(model: nn.Module, image_rgb: np.ndarray, json_path: str = "models/class_name.json"):
-    """Identifica la especie para cualquier resolución de imagen."""
+    """Identifica la especie adaptando resoluciones mediante padding."""
     class_names = load_class_names(json_path)
     tensor = preprocess_for_torch(image_rgb)
     
@@ -388,7 +367,7 @@ def predict_species(model: nn.Module, image_rgb: np.ndarray, json_path: str = "m
 
 
 def predict_venom(model, image_rgb: np.ndarray, threshold: float = 0.5):
-    """Clasifica veneno manteniendo la proporción original en cualquier resolución."""
+    """Clasifica veneno manteniendo la relación de aspecto en cualquier resolución."""
     x = preprocess_for_keras(image_rgb)
     raw_output = model.predict(x, verbose=0)
     prob_venomous = float(raw_output[0][0])
@@ -397,7 +376,7 @@ def predict_venom(model, image_rgb: np.ndarray, threshold: float = 0.5):
 
 
 def generate_gradcam(model: nn.Module, image_rgb: np.ndarray) -> np.ndarray:
-    """Genera la visualización Grad-CAM proyectada en la dimensión original de la imagen."""
+    """Genera la visualización Grad-CAM proyectada exactamente en la dimensión original."""
     tensor = preprocess_for_torch(image_rgb)
     grad_cam = GradCAM(model=model)
     
@@ -406,7 +385,6 @@ def generate_gradcam(model: nn.Module, image_rgb: np.ndarray) -> np.ndarray:
         pred_class = int(torch.argmax(logits, dim=1).item())
         cam_mask = grad_cam.generate(input_tensor=tensor, class_idx=pred_class)
     
-    # Mapea el calor sobre la imagen en su resolución original
     overlay_img = overlay_heatmap(image_rgb, cam_mask)
     model.zero_grad()
     
