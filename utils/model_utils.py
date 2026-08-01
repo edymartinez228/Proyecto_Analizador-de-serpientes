@@ -403,11 +403,25 @@ def predict_presence(model, image_np: np.ndarray, threshold: float = 0.50):
         results = model.predict(source=temp_path, verbose=False)
 
         if results and len(results) > 0:
+            probs = results[0].probs
+            if probs is not None:
+                # Modelo de CLASIFICACIÓN (YOLOv8-cls): clases {0: 'no_snake', 1: 'snake'}
+                names = results[0].names
+                snake_idx = next(
+                    (idx for idx, name in names.items() if name.lower() == "snake"),
+                    1  # fallback: índice 1 según el checkpoint entrenado
+                )
+                snake_conf = float(probs.data[snake_idx])
+
+                print(f"--> [DEBUG YOLO] Clasificación exitosa. Confianza 'snake': {snake_conf:.4f}")
+                return snake_conf >= threshold, snake_conf
+
+            # Fallback por si en el futuro se usa un modelo de DETECCIÓN en vez de clasificación
             boxes = results[0].boxes
             if boxes is not None and len(boxes) > 0 and boxes.conf is not None:
                 confidences = boxes.conf.cpu().numpy()
                 max_conf = float(np.max(confidences))
-                
+
                 print(f"--> [DEBUG YOLO] Detección exitosa. Confianza máx: {max_conf:.4f}")
                 return max_conf >= threshold, max_conf
 
