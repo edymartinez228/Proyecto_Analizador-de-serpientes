@@ -68,32 +68,21 @@ def get_species_model():
 # --- INTERFAZ PRINCIPAL ---
 
 st.title("🐍 Analizador e Identificador de Serpientes")
-st.write("Sube una imagen o toma una fotografía para detectar si hay una serpiente, evaluar si es venenosa e identificar su especie exacta.")
+st.write("Sube una imagen para detectar si hay una serpiente, evaluar si es venenosa e identificar su especie exacta.")
 
 st.divider()
 
-# Opciones de control
-col_mode, col_gradcam = st.columns([2, 1])
+# Opciones de control (sin cámara)
+col_upload, col_gradcam = st.columns([2, 1])
 
-with col_mode:
-    input_method = st.radio(
-        "Selecciona el método de entrada de imagen:",
-        ["📁 Subir Archivo", "📷 Usar Cámara"],
-        horizontal=True
-    )
-
-with col_gradcam:
-    show_gradcam = st.checkbox("Mostrar mapa Grad-CAM", value=False)
-
-image_file = None
-
-if input_method == "📁 Subir Archivo":
+with col_upload:
     image_file = st.file_uploader(
         "Sube una imagen de una serpiente (JPG, PNG, JPEG)", 
         type=["jpg", "png", "jpeg"]
     )
-else:
-    image_file = st.camera_input("Toma una fotografía de la serpiente")
+
+with col_gradcam:
+    show_gradcam = st.checkbox("Mostrar mapa Grad-CAM", value=False)
 
 # Umbrales de confianza configurables
 PRESENCE_THRESHOLD = 0.60
@@ -140,8 +129,10 @@ if image_file is not None:
                 venom_model = get_venom_model()
                 species_model = get_species_model()
 
-                # 4. Análisis de Veneno
-                is_venomous, venom_prob = predict_venom(venom_model, image_np, VENOM_THRESHOLD)
+                # 4. Análisis de Veneno (recibe is_venomous, venom_prob y recommendations)
+                is_venomous, venom_prob, venom_recommendations = predict_venom(
+                    venom_model, image_np, VENOM_THRESHOLD
+                )
                 
                 # 5. Clasificación de Especie con Ranking Top-K
                 species_name, species_prob, top_predictions = predict_species(species_model, image_np, top_k=5)
@@ -169,7 +160,29 @@ if image_file is not None:
                 if safety_check["warning_triggered"]:
                     st.warning(safety_check["warning_message"])
 
-                # 8. Desglose del Top de Predicciones de Especie
+                # 8. Renderizado de Recomendaciones Médicas
+                recommendations_to_display = (
+                    safety_check["recommendations"] 
+                    if safety_check["warning_triggered"] 
+                    else venom_recommendations
+                )
+
+                if recommendations_to_display:
+                    st.error("🚨 **ATENCIÓN: RECOMENDACIONES DE PRIMEROS AUXILIOS**")
+                    
+                    col_do, col_dont = st.columns(2)
+                    
+                    with col_do:
+                        st.markdown("### ✅ **Qué HACER**")
+                        for item in recommendations_to_display["que_hacer"]:
+                            st.markdown(f"- {item}")
+                            
+                    with col_dont:
+                        st.markdown("### ❌ **Lo que NUNCA debes hacer**")
+                        for item in recommendations_to_display["nunca_hacer"]:
+                            st.markdown(f"- {item}")
+
+                # 9. Desglose del Top de Predicciones de Especie
                 with st.expander("📊 Ver Top de Coincidencias de Especies", expanded=True):
                     st.write("Ranking de las especies más probables identificadas por el modelo:")
                     for idx, pred in enumerate(top_predictions, 1):
@@ -177,7 +190,7 @@ if image_file is not None:
                         st.write(f"**{idx}. {pred['spanish_name']}** (`{pred['raw_name']}`) — {prob_percent:.2f}%")
                         st.progress(min(pred['probability'], 1.0))
 
-                # 9. Mapa de Atención (Grad-CAM)
+                # 10. Mapa de Atención (Grad-CAM)
                 if show_gradcam:
                     st.divider()
                     st.subheader("🔥 Mapa de Atención (Grad-CAM)")
