@@ -154,7 +154,7 @@ def load_presence_model(weights_path: str):
 
 
 def load_species_model(weights_path: str, num_classes: int = None) -> nn.Module:
-    """Carga el modelo EfficientNet-B2 de especie."""
+    """Carga el modelo EfficientNet ajustado a la arquitectura del checkpoint."""
     checkpoint = torch.load(weights_path, map_location=DEVICE)
     
     if isinstance(checkpoint, dict):
@@ -162,18 +162,32 @@ def load_species_model(weights_path: str, num_classes: int = None) -> nn.Module:
     else:
         state_dict = checkpoint.state_dict() if hasattr(checkpoint, 'state_dict') else checkpoint
 
-    # Detección automática del número de clases desde las matrices del .pth si no se especificó
+    # Detección automática del número de clases
     if num_classes is None:
         if 'classifier.1.weight' in state_dict:
             num_classes = state_dict['classifier.1.weight'].shape[0]
         else:
-            num_classes = 10  # Valor por defecto del dataset filtrado
+            num_classes = 10
 
-    model = models.efficientnet_b2(weights=None)
-    in_features = model.classifier[1].in_features
-    model.classifier[1] = nn.Linear(in_features, num_classes)
+    # Cambiamos B2 por B0 para coincidir con las dimensiones de tu .pth
+    try:
+        model = models.efficientnet_b0(weights=None)
+        in_features = model.classifier[1].in_features
+        model.classifier[1] = nn.Linear(in_features, num_classes)
+        model.load_state_dict(state_dict)
+    except RuntimeError:
+        # Respaldos en caso de que fuera EfficientNet-B1 o B2
+        try:
+            model = models.efficientnet_b1(weights=None)
+            in_features = model.classifier[1].in_features
+            model.classifier[1] = nn.Linear(in_features, num_classes)
+            model.load_state_dict(state_dict)
+        except RuntimeError:
+            model = models.efficientnet_b2(weights=None)
+            in_features = model.classifier[1].in_features
+            model.classifier[1] = nn.Linear(in_features, num_classes)
+            model.load_state_dict(state_dict)
     
-    model.load_state_dict(state_dict)
     model.to(DEVICE).eval()
     return model
 
