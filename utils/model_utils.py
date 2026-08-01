@@ -386,22 +386,17 @@ def overlay_heatmap(original_rgb: np.ndarray, cam: np.ndarray, alpha: float = 0.
 # ---------------------------------------------------------------------------
 # Funciones de Predicción e Inferencia Integradas
 # ---------------------------------------------------------------------------
-def predict_presence(model, image_rgb: np.ndarray, threshold: float = 0.60):
-    """
-    Detecta si hay una serpiente en la imagen usando el modelo YOLOv8 de presencia.
-    Devuelve (has_snake: bool, confidence: float) con la mayor confianza detectada.
-    """
-    results = model.predict(source=image_rgb, verbose=False)
-    result = results[0]
-
-    if result.boxes is None or len(result.boxes) == 0:
-        return False, 0.0
-
-    confidences = result.boxes.conf.cpu().numpy()
-    max_conf = float(confidences.max()) if len(confidences) > 0 else 0.0
-    has_snake = max_conf >= threshold
-
-    return has_snake, max_conf
+def predict_presence(model, image_np, threshold=0.60):
+    results = model.predict(source=image_np, verbose=False)
+    
+    if len(results[0].boxes) > 0:
+        # Obtener la confianza máxima entre todas las detecciones
+        max_conf = float(results[0].boxes.conf.max().cpu().numpy())
+        has_snake = max_conf >= threshold
+        return has_snake, max_conf
+    
+    # Si de verdad no encontró ningún bounding box
+    return False, 0.0
 
 
 def predict_species(model: nn.Module, image_rgb: np.ndarray, json_path: str = "modelo_especie_out/class_names.json", top_k: int = 5):
