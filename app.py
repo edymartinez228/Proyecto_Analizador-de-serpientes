@@ -150,7 +150,7 @@ if image_file is not None:
                 is_venomous, venom_prob = predict_venom(venom_model, image_np, VENOM_THRESHOLD)
                 
                 # 5. Clasificación de Especie con Ranking Top-K
-                species_name, species_prob, top_predictions = predict_species(species_model, image_np, top_k=3)
+                species_name, species_prob, top_predictions = predict_species(species_model, image_np, top_k=5)
                 
                 # 6. Métricas Principales en Pantalla
                 col_venom, col_species = st.columns(2)
