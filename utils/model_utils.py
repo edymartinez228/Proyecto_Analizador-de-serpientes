@@ -446,11 +446,6 @@ def predict_venom(model, image_rgb: np.ndarray, threshold: float = 0.5):
 
 
 def cross_validate_venom_risk(species_raw_name: str, is_venomous_pred: bool, species_prob: float = 1.0) -> dict:
-    """
-    Validación Cruzada Bidireccional de Seguridad:
-    1. Si es especie venenosa pero el modelo de veneno dio bajo -> ALERTA DE RIESGO.
-    2. Si es especie NO venenosa (con suficiente confianza) pero el modelo de veneno dio positivo -> CORRIGE FALSO POSITIVO.
-    """
     species_lower = species_raw_name.lower()
     
     is_known_venomous = any(kw in species_lower for kw in VENOMOUS_KEYWORDS)
@@ -462,7 +457,7 @@ def cross_validate_venom_risk(species_raw_name: str, is_venomous_pred: bool, spe
     info_message = ""
     recommendations = None
 
-    # CASO 1: Especie Venenosa conocida, pero el modelo de veneno no la detectó
+    # CASO 1: Especie Venenosa conocida, pero el modelo de veneno no la detectó (Falso Negativo de peligro)
     if is_known_venomous and not is_venomous_pred:
         final_is_venomous = True
         warning_triggered = True
@@ -473,16 +468,18 @@ def cross_validate_venom_risk(species_raw_name: str, is_venomous_pred: bool, spe
         )
         recommendations = RECOMENDACIONES_VENENO
 
-    # CASO 2: Especie NO Venenosa conocida (ej. Arizona elegans), pero el modelo de veneno dio falso positivo
-    elif is_known_non_venomous and is_venomous_pred and species_prob >= 0.40:
-        final_is_venomous = False
-        info_message = (
-            f"ℹ️ **Corrección de Falso Positivo:** Aunque el patrón visual sugería veneno, "
-            f"la especie fue identificada como **{species_raw_name}**, la cual es una especie **NO VENENOSA**."
+    # CASO 2: Especie NO Venenosa pero el modelo de veneno detecta peligro (Falso Positivo)
+    elif not is_known_venomous and is_venomous_pred:
+        # Priorizar protocolo de seguridad por encima del dictamen taxonómico
+        final_is_venomous = True
+        warning_triggered = True
+        warning_message = (
+            f"🚨 ADVERTENCIA DE SEGURIDAD: La especie identificada '{species_raw_name}' es habitualmente no venenosa, "
+            "pero los patrones visuales activaron la alerta del modelo de veneno. Se mantiene la alerta por precaución."
         )
-        recommendations = None
+        recommendations = RECOMENDACIONES_VENENO
 
-    # CASO 3: Es venenosa confirmada
+    # CASO 3: Es venenosa confirmada por ambos
     elif final_is_venomous:
         recommendations = RECOMENDACIONES_VENENO
 
