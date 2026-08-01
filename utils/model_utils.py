@@ -25,110 +25,168 @@ from ultralytics import YOLO
 # Configuración global
 # ---------------------------------------------------------------------------
 IMG_SIZE_DEFAULT = 224
-IMG_SIZE_SPECIES = 260  # Resolución optimizada con la que entrenaste EfficientNet-B2
+IMG_SIZE_SPECIES = 260
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD = [0.229, 0.224, 0.225]
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# Palabras clave para detectar veneno en el nombre de la especie
+# Palabras clave y géneros médicos de importancia para la validación cruzada de veneno
 VENOMOUS_KEYWORDS = [
+    # Nombres científicos (Géneros)
+    "agkistrodon", "austrelaps", "bitis", "bothriechis", "bothrops", "bungarus",
+    "causus", "crotalus", "daboia", "dendroaspis", "laticauda", "micrurus",
+    "naja", "ophiophagus", "oxyuranus", "protobothrops", "pseudechis",
+    "pseudonaja", "rhabdophis", "sistrurus", "trimeresurus", "tropidolaemus", "vipera",
+    # Nombres comunes
     "cobra", "viper", "mamba", "krait", "coral", "rattlesnake", "taipan",
     "copperhead", "cottonmouth", "boomslang", "cantil", "cascabel", "víbora"
 ]
 
-# Diccionario de traducción inglés -> español para las clases del modelo
+# Diccionario de traducción Nombre Científico -> Nombre Común en Español
 TRADUCCION_ESPECIES = {
-    "Abaco island boa": "Boa de la Isla Ábaco",
-    "Amazon tree boa": "Boa arborícola del Amazonas",
-    "Andaman cat snake": "Serpiente gato de Andamán",
-    "Andaman cobra": "Cobra de Andamán",
-    "Arabian cobra": "Cobra arábiga",
-    "Arizona Coral snake": "Coral de Arizona",
-    "Asian cobra": "Cobra asiática",
-    "Australian tiger snake": "Serpiente tigre australiana",
-    "Ball python": "Pitón bola",
-    "Banded Krait": "Krait bandeado",
-    "Banded cat eyed snake": "Serpiente ojo de gato bandeada",
-    "Banded water cobra": "Cobra de agua bandeada",
-    "Beddome cat snake": "Serpiente gato de Beddome",
-    "Black headed Python": "Pitón de cabeza negra",
-    "Black necked spitting cobra": "Cobra escupidora de cuello negro",
-    "Black racer snake": "Corredora negra",
-    "Black rat snake": "Serpiente ratonera negra",
-    "Black snake": "Serpiente negra",
-    "Black tree cobra": "Cobra arborícola negra",
-    "Boa constrictor": "Boa constrictor / Mazacuata",
-    "Boiga": "Boiga / Serpiente gato",
-    "Boomslang": "Boomslang / Serpiente del árbol",
-    "Brahminy blind snake": "Serpiente ciega de Brahminy",
-    "Brazilian coral snake": "Coral brasilera",
-    "Bull snake": "Serpiente toro",
-    "Canebrake": "Cascabel de los cañaverales (Canebrake)",
-    "Cantil": "Cantil / Mokasin",
-    "Cape cobra": "Cobra del Cabo",
-    "Caspian cobra": "Cobra del Caspio",
-    "Collett snake": "Serpiente de Collett",
-    "Dekay Brown snake": "Serpiente marrón de DeKay",
-    "Dumeril Blackheaded snake": "Serpiente de cabeza negra de Duméril",
-    "Eastern Brown Snake": "Serpiente marrón oriental",
-    "Emerald boa": "Boa esmeralda",
-    "Equatorial spitting cobra": "Cobra escupidora ecuatorial",
-    "Eqyptian cobra": "Cobra egipcia",
-    "Eyelash viper": "Víbora de pestañas / Culebra de pestaña",
-    "False cobra": "Falsa cobra",
-    "False coral snake": "Falsa coral",
-    "Fierce snake": "Taipán del interior / Serpiente feroz",
-    "Forest cobra": "Cobra del bosque",
-    "Forsten cat snake": "Serpiente gato de Forsten",
-    "Gold ringed cat snake": "Serpiente gato de anillos dorados",
-    "Green cat eyed snake": "Serpiente ojo de gato verde",
-    "Grey cat snake": "Serpiente gato gris",
-    "Harlequin coral snake": "Coral arlequín",
-    "Hog island boa": "Boa de Hog Island",
-    "Indian cobra": "Cobra india / Cobra de anteojos",
-    "Indian egg eater": "Comedora de huevos india",
-    "Jamaican boa": "Boa de Jamaica",
-    "Javan spitting cobra": "Cobra escupidora de Java",
-    "King cobra": "Cobra real",
-    "Madagascar tree boa": "Boa arborícola de Madagascar",
-    "Malayan blue coral snake": "Coral azul de Malasia",
-    "Monocled cobra": "Cobra de monóculo",
-    "Mozambique cobra": "Cobra de Mozambique",
-    "Nicobar cat snake": "Serpiente gato de Nicobar",
-    "Puerto rican boa": "Boa de Puerto Rico",
-    "Rainbow boa": "Boa arcoíris",
-    "Red spitting cobra": "Cobra escupidora roja",
-    "Red tailed boa": "Boa de cola roja",
-    "Red-bellied black snake": "Serpiente negra de vientre rojo",
-    "Rosy boa": "Boa rosada",
-    "Rubber boa": "Boa de goma",
-    "Rufuos beaked snake": "Serpiente picuda rufa",
-    "Sand boa": "Boa de arena",
-    "Sir lanka cat snake": "Serpiente gato de Sri Lanka",
-    "Snouted cobra": "Cobra hocicuda",
-    "Spectacled cobra": "Cobra de anteojos",
-    "Spitting cobra": "Cobra escupidora",
-    "Tawny cat snake": "Serpiente gato leonada",
-    "Texas blind snake": "Serpiente ciega de Texas",
-    "Texas coral snake": "Coral de Texas",
-    "Western blind snake": "Serpiente ciega occidental",
-    "Yellow cobra": "Cobra amarilla",
-    "Zebra spitting cobra": "Cobra escupidora cebra",
-    "copperhead": "Cabeza de cobre (Copperhead)",
-    "nubian spitting cobra": "Cobra escupidora de Nubia",
-    "ornate flying snake": "Serpiente voladora ornamentada",
-    "red sand boa": "Boa de arena roja"
+    "Agkistrodon contortrix": "Cabeza de Cobre (Copperhead)",
+    "Agkistrodon piscivorus": "Boca de Algodón (Cottonmouth)",
+    "Ahaetulla nasuta": "Serpiente Látigo Narizona",
+    "Ahaetulla prasina": "Serpiente Látigo Verde",
+    "Arizona elegans": "Serpiente Elegante de Arizona",
+    "Aspidites melanocephalus": "Pitón de Cabeza Negra",
+    "Atractus crassicaudatus": "Sabanera / Serpiente Tierrera",
+    "Austrelaps superbus": "Serpiente Cabeza de Cobre Australiana",
+    "Bitis arietans": "Víbora Sopladora (Puff Adder)",
+    "Bitis gabonica": "Víbora de Gabón",
+    "Boa constrictor": "Boa Constrictor / Mazacuata",
+    "Bogertophis subocularis": "Serpiente Ratonera Trans-Pecos",
+    "Boiga irregularis": "Serpiente Gato Marrón",
+    "Boiga kraepelini": "Serpiente Gato de Kraepelin",
+    "Bothriechis schlegelii": "Víbora de Pestañas / Bocaracá",
+    "Bothrops asper": "Barba Amarilla / Terciopelo",
+    "Bothrops atrox": "Jarca / Mapaná / Labaria",
+    "Bungarus multicinctus": "Krait de Bandas Múltiples",
+    "Carphophis amoenus": "Serpiente de Gusano Oriental",
+    "Carphophis vermis": "Serpiente de Gusano Occidental",
+    "Causus rhombeatus": "Víbora Nocturna Romboédrica",
+    "Cemophora coccinea": "Serpiente Escarlata",
+    "Charina bottae": "Boa de Goma del Norte",
+    "Chrysopelea ornata": "Serpiente Voladora Ornamentada",
+    "Clonophis kirtlandii": "Serpiente de Kirtland",
+    "Contia tenuis": "Serpiente de Cola Afilada",
+    "Corallus caninus": "Boa Esmeralda",
+    "Corallus hortulanus": "Boa Arborícola del Amazonas",
+    "Coronella girondica": "Culebra Bordelesa",
+    "Crotalus adamanteus": "Cascabel Diamantina del Este",
+    "Crotalus atrox": "Cascabel Diamantina del Oeste",
+    "Crotalus cerastes": "Serpiente de Cascabel Cornuda (Sidewinder)",
+    "Crotalus cerberus": "Cascabel Negra de Arizona",
+    "Crotalus lepidus": "Cascabel de las Rocas",
+    "Crotalus molossus": "Cascabel de Cola Negra",
+    "Crotalus ornatus": "Cascabel Ornamental del Este",
+    "Crotalus ruber": "Cascabel Roja",
+    "Crotalus scutulatus": "Cascabel del Mojave",
+    "Crotalus stephensi": "Cascabel de Panamaint",
+    "Crotalus tigris": "Cascabel Tigre",
+    "Crotalus triseriatus": "Cascabel Transvolcánica",
+    "Crotalus viridis": "Cascabel Verde de las Praderas",
+    "Crotaphopeltis hotamboeia": "Serpiente Heráldica / Labios Rojos",
+    "Daboia russelii": "Víbora de Russell",
+    "Dendrelaphis pictus": "Serpiente de Árbol Bronceada Pintada",
+    "Dendrelaphis punctulatus": "Serpiente de Árbol Verde Australiana",
+    "Dendroaspis polylepis": "Mamba Negra",
+    "Diadophis punctatus": "Serpiente de Cuello Anillado",
+    "Drymarchon couperi": "Serpiente Índigo del Este",
+    "Elaphe dione": "Culebra Dione",
+    "Epicrates cenchria": "Boa Arcoíris",
+    "Eunectes murinus": "Anaconda Verde",
+    "Farancia abacura": "Serpiente de Fango",
+    "Gonyosoma oxycephalum": "Serpiente Ratón Verde de Cola Roja",
+    "Hemorrhois hippocrepis": "Culebra de Herradura",
+    "Heterodon nasicus": "Serpiente Hocico de Cerdo Occidental",
+    "Heterodon simus": "Serpiente Hocico de Cerdo del Sureste",
+    "Hierophis viridiflavus": "Culebra Verdiamarilla",
+    "Hypsiglena torquata": "Serpiente Nocturna",
+    "Imantodes cenchoa": "Serpiente Cordelilla / Ojo de Gato",
+    "Lampropeltis alterna": "Serpiente Rey de las Rocas",
+    "Lampropeltis calligaster": "Serpiente Rey Topera",
+    "Lampropeltis getula": "Serpiente Rey Oriental",
+    "Lampropeltis pyromelana": "Serpiente Rey de las Montañas de Sonora",
+    "Lampropeltis triangulum": "Serpiente Rey Falsa Coral",
+    "Lampropeltis zonata": "Serpiente Rey de California",
+    "Laticauda colubrina": "Serpiente Marina de Bandas",
+    "Leptodeira annulata": "Serpiente Ojo de Gato Anillada",
+    "Leptophis ahaetulla": "Serpiente Lora / Bejuquilla",
+    "Leptophis diplotropis": "Serpiente Lora de Cintura",
+    "Leptophis mexicanus": "Serpiente Lora Mexicana",
+    "Lycodon capucinus": "Serpiente Lobo Común",
+    "Malpolon monspessulanus": "Culebra Bastarda",
+    "Masticophis bilineatus": "Corredora de Dos Líneas",
+    "Masticophis lateralis": "Corredora de Franja Verde",
+    "Masticophis schotti": "Corredora de Schott",
+    "Masticophis taeniatus": "Corredora Rayada",
+    "Micrurus fulvius": "Coralillo Arlequín del Este",
+    "Micrurus tener": "Coralillo de Texas",
+    "Morelia spilota": "Pitón Alfombra",
+    "Morelia viridis": "Pitón Arborícola Verde",
+    "Naja atra": "Cobra de China",
+    "Naja naja": "Cobra India / Cobra de Anteojos",
+    "Naja nivea": "Cobra del Cabo",
+    "Natrix maura": "Culebra Viperina",
+    "Nerodia cyclopion": "Serpiente de Agua de Vientre Verde",
+    "Nerodia floridana": "Serpiente de Agua de Florida",
+    "Nerodia taxispilota": "Serpiente de Agua Diamantada",
+    "Ninia sebae": "Serpiente Coral del Café",
+    "Opheodrys aestivus": "Serpiente Verde Rugosa",
+    "Ophiophagus hannah": "Cobra Real",
+    "Oxybelis aeneus": "Serpiente Bejuquilla Marrón",
+    "Oxyuranus scutellatus": "Taipán Costero",
+    "Phyllorhynchus decurtatus": "Serpiente Hocico de Hoja",
+    "Pituophis catenifer": "Serpiente Toro / Gopher",
+    "Pituophis deppei": "Serpiente Mexicana de los Pinos",
+    "Protobothrops mucrosquamatus": "Víbora de Habitáculo Habu",
+    "Psammodynastes pulverulentus": "Serpiente Mock Viper / Falsa Víbora",
+    "Pseudaspis cana": "Serpiente Topera Africana",
+    "Pseudechis australis": "Serpiente Rey Marrón / Mulga",
+    "Pseudechis porphyriacus": "Serpiente Negra de Vientre Rojo",
+    "Pseudonaja textilis": "Serpiente Marrón Oriental",
+    "Python molurus": "Pitón de la India",
+    "Python regius": "Pitón Bola",
+    "Regina septemvittata": "Serpiente Reina",
+    "Rhabdophis subminiatus": "Serpiente de Cuello Rojo",
+    "Rhabdophis tigrinus": "Serpiente Tigre de Agua (Yamakagashi)",
+    "Rhadinaea flavilata": "Serpiente de Pino de Labios Amarillos",
+    "Rhinocheilus lecontei": "Serpiente Nariz de Lenguado",
+    "Salvadora grahamiae": "Serpiente Parche de Montaña",
+    "Salvadora hexalepis": "Serpiente Parche del Desierto",
+    "Senticolis triaspis": "Serpiente Ratonera Verde Mexicana",
+    "Sistrurus catenatus": "Cascabel Massasauga",
+    "Sistrurus miliarius": "Cascabel Pigmea",
+    "Spilotes pullatus": "Serpiente Tigre / Toche",
+    "Tantilla coronata": "Serpiente Coronado del Sureste",
+    "Tantilla gracilis": "Serpiente de Cabeza Plana Esbelta",
+    "Tantilla hobartsmithi": "Serpiente de Cabeza Plana del Suroeste",
+    "Tantilla planiceps": "Serpiente de Cabeza Plana de California",
+    "Thamnophis atratus": "Serpiente de Liga de Cuello Marrón",
+    "Thamnophis couchii": "Serpiente de Liga de Sierra",
+    "Thamnophis cyrtopsis": "Serpiente de Liga de Cuello Negro",
+    "Thamnophis marcianus": "Serpiente de Liga Ajedrezada",
+    "Thamnophis ordinoides": "Serpiente de Liga del Noroeste",
+    "Thamnophis proximus": "Serpiente de Liga de Cinta",
+    "Thamnophis radix": "Serpiente de Liga de las Llanuras",
+    "Trimeresurus stejnegeri": "Víbora de Árbol Verde de Bamboo",
+    "Tropidoclonion lineatum": "Serpiente Rayada de Rayas Amarillas",
+    "Tropidolaemus subannulatus": "Víbora de Árbol del Sudeste Asiático",
+    "Tropidolaemus wagleri": "Víbora del Templo de Wagler",
+    "Vipera ammodytes": "Víbora cornuda europea",
+    "Vipera aspis": "Víbora Áspid",
+    "Vipera seoanei": "Víbora de Seoane",
+    "Virginia valeriae": "Serpiente de Tierra Suave",
+    "Xenochrophis piscator": "Serpiente de Agua de Cuello Rayado"
 }
 
 # ---------------------------------------------------------------------------
 # Procesamiento Adaptativo de Proporciones (Letterboxing)
 # ---------------------------------------------------------------------------
 def resize_aspect_ratio_pad(image_rgb: np.ndarray, target_size: int = 224) -> np.ndarray:
-    """
-    Redimensiona cualquier imagen a target_size x target_size
-    preservando la relación de aspecto mediante bordes neutros (Padding).
-    """
+    """Redimensiona cualquier imagen a target_size x target_size preservando la relación de aspecto."""
     h, w = image_rgb.shape[:2]
     scale = target_size / max(h, w)
     new_w = int(w * scale)
@@ -154,7 +212,7 @@ def load_presence_model(weights_path: str):
 
 
 def load_species_model(weights_path: str, num_classes: int = None) -> nn.Module:
-    """Carga el modelo EfficientNet ajustado a la arquitectura del checkpoint."""
+    """Carga el modelo EfficientNet con detección adaptativa de arquitectura."""
     checkpoint = torch.load(weights_path, map_location=DEVICE)
     
     if isinstance(checkpoint, dict):
@@ -162,34 +220,32 @@ def load_species_model(weights_path: str, num_classes: int = None) -> nn.Module:
     else:
         state_dict = checkpoint.state_dict() if hasattr(checkpoint, 'state_dict') else checkpoint
 
-    # Detección automática del número de clases
     if num_classes is None:
         if 'classifier.1.weight' in state_dict:
             num_classes = state_dict['classifier.1.weight'].shape[0]
         else:
-            num_classes = 10
+            num_classes = 135
 
-    # Cambiamos B2 por B0 para coincidir con las dimensiones de tu .pth
-    try:
-        model = models.efficientnet_b0(weights=None)
-        in_features = model.classifier[1].in_features
-        model.classifier[1] = nn.Linear(in_features, num_classes)
-        model.load_state_dict(state_dict)
-    except RuntimeError:
-        # Respaldos en caso de que fuera EfficientNet-B1 o B2
+    # Carga multiarquitectura resiliente (B0 -> B1 -> B2)
+    architectures = [models.efficientnet_b0, models.efficientnet_b1, models.efficientnet_b2]
+    loaded_model = None
+
+    for arch_func in architectures:
         try:
-            model = models.efficientnet_b1(weights=None)
+            model = arch_func(weights=None)
             in_features = model.classifier[1].in_features
             model.classifier[1] = nn.Linear(in_features, num_classes)
             model.load_state_dict(state_dict)
+            loaded_model = model
+            break
         except RuntimeError:
-            model = models.efficientnet_b2(weights=None)
-            in_features = model.classifier[1].in_features
-            model.classifier[1] = nn.Linear(in_features, num_classes)
-            model.load_state_dict(state_dict)
-    
-    model.to(DEVICE).eval()
-    return model
+            continue
+
+    if loaded_model is None:
+        raise RuntimeError("❌ No se pudo hacer encajar el archivo .pth con ninguna versión de EfficientNet (B0, B1, B2).")
+
+    loaded_model.to(DEVICE).eval()
+    return loaded_model
 
 
 def load_venom_model(weights_path: str = "models/modelo_veneno.weights.h5"):
@@ -230,10 +286,11 @@ def load_venom_model(weights_path: str = "models/modelo_veneno.weights.h5"):
 
 
 def load_class_names(json_path: str = "modelo_especie_out/class_names.json") -> list:
-    """Carga los nombres de las clases desde el archivo JSON."""
+    """Carga los nombres de las clases desde el JSON."""
     possible_paths = [
         json_path,
         "modelo_especie_out/class_names.json",
+        "models/class_names.json",
         "models/class_name.json"
     ]
     actual_path = next((p for p in possible_paths if os.path.exists(p)), None)
@@ -278,7 +335,7 @@ def preprocess_for_keras(image_rgb: np.ndarray, target_size: int = IMG_SIZE_DEFA
 # Grad-CAM Adaptativo
 # ---------------------------------------------------------------------------
 class GradCAM:
-    """Implementación de Grad-CAM para visualizar mapas de atención en EfficientNet."""
+    """Implementación de Grad-CAM para visualizar mapas de atención."""
 
     def __init__(self, model: nn.Module, target_layer: nn.Module = None):
         self.model = model
@@ -319,7 +376,7 @@ class GradCAM:
 
 
 def overlay_heatmap(original_rgb: np.ndarray, cam: np.ndarray, alpha: float = 0.45) -> np.ndarray:
-    """Superpone el mapa de calor proyectando sobre la resolución original de la imagen."""
+    """Superpone el mapa de calor sobre la resolución original de la imagen."""
     orig_h, orig_w = original_rgb.shape[:2]
     cam_resized = cv2.resize(cam, (orig_w, orig_h), interpolation=cv2.INTER_CUBIC)
     
@@ -361,10 +418,7 @@ def predict_presence(presence_model, image_rgb: np.ndarray, min_confidence: floa
 
 
 def predict_species(model: nn.Module, image_rgb: np.ndarray, json_path: str = "modelo_especie_out/class_names.json", top_k: int = 3):
-    """
-    Identifica la especie en 260x260 y devuelve la especie predicha,
-    su probabilidad y el ranking Top-K de predicciones.
-    """
+    """Identifica la especie y devuelve el ranking Top-K de predicciones traducidas."""
     class_names = load_class_names(json_path)
     tensor = preprocess_for_torch(image_rgb, target_size=IMG_SIZE_SPECIES)
     
@@ -399,10 +453,7 @@ def predict_venom(model, image_rgb: np.ndarray, threshold: float = 0.5):
 
 
 def cross_validate_venom_risk(species_raw_name: str, is_venomous_pred: bool) -> dict:
-    """
-    Validación Cruzada: Si la especie predicha es conocida por ser venenosa
-    pero el modelo de veneno dice lo contrario, genera un aviso de precaución.
-    """
+    """Validación Cruzada de Seguridad (Especie vs Veneno)."""
     species_lower = species_raw_name.lower()
     is_known_venomous_species = any(kw in species_lower for kw in VENOMOUS_KEYWORDS)
     
@@ -413,8 +464,9 @@ def cross_validate_venom_risk(species_raw_name: str, is_venomous_pred: bool) -> 
         warning_triggered = True
         warning_message = (
             f"⚠️ ADVERTENCIA DE SEGURIDAD: La especie identificada '{species_raw_name}' "
-            "pertenece a un grupo potencialmente VENENOSO, aunque el clasificador de veneno "
-            "haya dado un porcentaje bajo. Tome precauciones y mantenga la distancia."
+            "pertenece a un género o grupo de serpientes potencialmente VENENOSAS, "
+            "aunque el clasificador de veneno indicó un riesgo bajo. "
+            "Mantenga la distancia y tome precauciones extremas."
         )
 
     return {
@@ -424,7 +476,7 @@ def cross_validate_venom_risk(species_raw_name: str, is_venomous_pred: bool) -> 
 
 
 def generate_gradcam(model: nn.Module, image_rgb: np.ndarray) -> np.ndarray:
-    """Genera la visualización Grad-CAM proyectada exactamente en la dimensión original."""
+    """Genera la visualización Grad-CAM proyectada en la dimensión original."""
     tensor = preprocess_for_torch(image_rgb, target_size=IMG_SIZE_SPECIES)
     grad_cam = GradCAM(model=model)
     
