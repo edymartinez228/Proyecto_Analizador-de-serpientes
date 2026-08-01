@@ -22,7 +22,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Estilos CSS para ocultar el control de la barra lateral por completo
+# Estilos CSS para ocultar el control de la barra lateral
 st.markdown("""
     <style>
         [data-testid="collapsedControl"] { display: none; }
@@ -30,7 +30,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-# --- CARGA DE MODELOS CON CACHÉ Y BÚSQUEDA FLEXIBLE DE RUTAS ---
+# --- CARGA DE MODELOS CON CACHÉ Y BÚSQUEDA FLEXIBLE ---
 
 @st.cache_resource
 def get_presence_model():
@@ -82,7 +82,7 @@ st.write("Sube una imagen o toma una fotografía para detectar si hay una serpie
 
 st.divider()
 
-# Opciones de control en la pantalla principal
+# Opciones de control
 col_mode, col_gradcam = st.columns([2, 1])
 
 with col_mode:
@@ -105,7 +105,7 @@ if input_method == "📁 Subir Archivo":
 else:
     image_file = st.camera_input("Toma una fotografía de la serpiente")
 
-# Umbral estricto para evitar falsos positivos en rostros y paredes
+# Umbral estricto para la detección
 PRESENCE_THRESHOLD = 0.85
 VENOM_THRESHOLD = 0.50
 
@@ -115,18 +115,16 @@ if image_file is not None:
     st.divider()
     st.subheader("🖼️ Imagen a Analizar")
     
-    # 1. Cargar imagen y normalizar orientación de celular (EXIF)
+    # 1. Cargar imagen y normalizar orientación EXIF (típico en celulares)
     image = Image.open(image_file).convert("RGB")
     image = ImageOps.exif_transpose(image)
     
-    # 2. Reducir resoluciones gigantescas de celulares (48 MP -> Max 1024px)
-    image.thumbnail((1024, 1024), Image.Resampling.LANCZOS)
-    
-    st.image(image, caption="Imagen cargada y optimizada", use_container_width=True)
+    # Renderizar en la interfaz respetando el tamaño de pantalla
+    st.image(image, caption="Imagen cargada", use_container_width=True)
     
     with st.spinner("Analizando la imagen con los modelos de IA..."):
         try:
-            # Convertir la imagen optimizada a arreglo NumPy
+            # 2. Convertir a NumPy en espacio RGB puro (sin deformar dimensiones)
             image_np = np.array(image)
 
             # 3. Cargar modelo de presencia y evaluar
