@@ -34,7 +34,6 @@ st.markdown("""
 
 @st.cache_resource
 def get_presence_model():
-    # Buscar el modelo YOLOv8 de presencia (.pt) en la carpeta 'models'
     paths = [
         "models/best.pt",
         "models/modelo_serpiente.pt",
@@ -62,7 +61,6 @@ def get_venom_model():
 
 @st.cache_resource
 def get_species_model():
-    # Buscar extensiones válidas de PyTorch (.pth / .pt)
     paths = [
         "models/modelo_especie.pth",
         "models/modelo_especie.pt",
@@ -107,8 +105,7 @@ if input_method == "📁 Subir Archivo":
 else:
     image_file = st.camera_input("Toma una fotografía de la serpiente")
 
-# Parámetros internos del pipeline:
-# PRESENCE_THRESHOLD al 0.85 para evitar falsos positivos en paredes y rostros
+# Umbral estricto para evitar falsos positivos en rostros y paredes
 PRESENCE_THRESHOLD = 0.85
 VENOM_THRESHOLD = 0.50
 
@@ -124,33 +121,30 @@ if image_file is not None:
     
     with st.spinner("Analizando la imagen con los modelos de IA..."):
         try:
-            # 1. Cargar modelos
-            presence_model = get_presence_model()
-            
-            # Convertir imagen PIL a arreglo NumPy
+            # Convertir imagen PIL a arreglo NumPy AL INICIO
             image_np = np.array(image)
 
-            # 2. Paso 1: Detección de Presencia (YOLOv8 Clasificación con filtro estricto)
+            # 1. Cargar modelo de presencia y evaluar
+            presence_model = get_presence_model()
             has_snake, presence_prob = predict_presence(presence_model, image_np, PRESENCE_THRESHOLD)
 
             st.subheader("📊 Resultados del Análisis")
 
             if not has_snake:
-                # Si la confianza es menor a 85% o determina 'no_snake', detiene la ejecución
                 st.warning(f"⚠️ No se detectó ninguna serpiente en la imagen (Confianza del filtro: {presence_prob*100:.1f}%).")
                 st.info("💡 **Consejo:** Acércate un poco más al objetivo o asegúrate de enfocar bien al reptil y contar con buena iluminación.")
             
             else:
-                # Solo si pasa la prueba estricta, continúa cargando y ejecutando el resto de los modelos
                 st.success(f"✅ Serpiente detectada con una confianza del {presence_prob*100:.1f}%.")
                 
+                # Cargar el resto de modelos solo si pasó la prueba de presencia
                 venom_model = get_venom_model()
                 species_model = get_species_model()
 
-                # 3. Paso 2: Análisis de Veneno
+                # 2. Análisis de Veneno
                 is_venomous, venom_prob = predict_venom(venom_model, image_np, VENOM_THRESHOLD)
                 
-                # 4. Paso 3: Clasificación de Especie
+                # 3. Clasificación de Especie
                 species_name, species_prob = predict_species(species_model, image_np)
                 
                 col_venom, col_species = st.columns(2)
@@ -169,7 +163,7 @@ if image_file is not None:
                         delta=f"{species_prob*100:.1f}% coincidencia"
                     )
 
-                # 5. Paso 4: Mapa de Atención (Grad-CAM)
+                # 4. Mapa de Atención (Grad-CAM)
                 if show_gradcam:
                     st.divider()
                     st.subheader("🔥 Mapa de Atención (Grad-CAM)")
