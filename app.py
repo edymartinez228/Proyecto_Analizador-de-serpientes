@@ -5,10 +5,8 @@ import numpy as np
 
 # Importar funciones de utilidad desde utils/model_utils.py
 from utils.model_utils import (
-    load_presence_model,
     load_venom_model,
     load_species_model,
-    predict_presence,
     predict_venom,
     predict_species,
     cross_validate_venom_risk,
@@ -34,18 +32,6 @@ st.markdown("""
 # --- CARGA DE MODELOS CON CACHÉ Y BÚSQUEDA FLEXIBLE ---
 
 @st.cache_resource
-def get_presence_model():
-    path = "models/modelo_serpiente.pt"
-    if not os.path.exists(path):
-        existing = os.listdir("models") if os.path.exists("models") else "Carpeta 'models' no encontrada"
-        raise FileNotFoundError(f"❌ No se encontró '{path}'. Archivos en 'models/': {existing}")
-        
-    model = load_presence_model(path)
-    print(f"--> Modelo de presencia cargado desde: {path}")
-    return model
-
-
-@st.cache_resource
 def get_venom_model():
     path = "models/modelo_veneno.weights.h5"
     if not os.path.exists(path):
@@ -68,11 +54,11 @@ def get_species_model():
 # --- INTERFAZ PRINCIPAL ---
 
 st.title("🐍 Analizador e Identificador de Serpientes")
-st.write("Sube una imagen para detectar si hay una serpiente, evaluar si es venenosa e identificar su especie exacta.")
+st.write("Sube una imagen para evaluar si es venenosa e identificar su especie exacta.")
 
 st.divider()
 
-# Opciones de control (sin cámara)
+# Opciones de control
 col_upload, col_gradcam = st.columns([2, 1])
 
 with col_upload:
@@ -84,8 +70,7 @@ with col_upload:
 with col_gradcam:
     show_gradcam = st.checkbox("Mostrar mapa Grad-CAM", value=False)
 
-# Umbrales de confianza configurables
-PRESENCE_THRESHOLD = 0.60
+# Umbral de veneno configurable
 VENOM_THRESHOLD = 0.50
 
 # --- PROCESAMIENTO Y EJECUCIÓN DEL PIPELINE ---
@@ -105,105 +90,86 @@ if image_file is not None:
             # 2. Convertir a NumPy en espacio RGB puro
             image_np = np.array(image)
 
-            # 3. Cargar modelo de presencia y evaluar
-            presence_model = get_presence_model()
-            has_snake, presence_prob = predict_presence(presence_model, image_np, PRESENCE_THRESHOLD)
+            # Cargar modelos de clasificación
+            venom_model = get_venom_model()
+            species_model = get_species_model()
 
-            st.subheader("📊 Resultados del Análisis")
-
-            if not has_snake:
-                if presence_prob > 0:
-                    st.warning(
-                        f"⚠️ Se detectó una coincidencia baja ({presence_prob*100:.1f}%), "
-                        f"pero es inferior al umbral requerido ({PRESENCE_THRESHOLD*100:.0f}%)."
-                    )
-                else:
-                    st.warning(f"⚠️ No se detectó ninguna serpiente en la imagen (Confianza de coincidencia: {presence_prob*100:.1f}%).")
-                
-                st.info("💡 **Consejo:** Acércate un poco más al objetivo o asegúrate de enfocar bien al reptil y contar con buena iluminación.")
+            # 3. Análisis de Veneno
+            is_venomous, venom_prob, venom_recommendations = predict_venom(
+                venom_model, image_np, VENOM_THRESHOLD
+            )
             
-            else:
-                st.success(f"✅ Serpiente detectada con una confianza del {presence_prob*100:.1f}%.")
-                
-                # Cargar modelos de clasificación
-                venom_model = get_venom_model()
-                species_model = get_species_model()
-
-                # 4. Análisis de Veneno (recibe is_venomous, venom_prob y recommendations)
-                is_venomous, venom_prob, venom_recommendations = predict_venom(
-                    venom_model, image_np, VENOM_THRESHOLD
+            # 4. Clasificación de Especie con Ranking Top-K
+            species_name, species_prob, top_predictions = predict_species(species_model, image_np, top_k=5)
+            
+            # 5. Métricas Principales en Pantalla
+            st.subheader("📊 Resultados del Análisis")
+            col_venom, col_species = st.columns(2)
+            
+            with col_venom:
+                st.metric(
+                    label="Peligrosidad / Veneno",
+                    value="VENENOSA ⚠️" if is_venomous else "NO VENENOSA 🟢",
+                    delta=f"{venom_prob*100:.1f}% probabilidad"
                 )
-                
-                # 5. Clasificación de Especie con Ranking Top-K
-                species_name, species_prob, top_predictions = predict_species(species_model, image_np, top_k=5)
-                
-                # 6. Métricas Principales en Pantalla
-                col_venom, col_species = st.columns(2)
-                
-                with col_venom:
-                    st.metric(
-                        label="Peligrosidad / Veneno",
-                        value="VENENOSA ⚠️" if is_venomous else "NO VENENOSA 🟢",
-                        delta=f"{venom_prob*100:.1f}% probabilidad"
-                    )
-                
-                with col_species:
-                    st.metric(
-                        label="Especie Detectada",
-                        value=species_name,
-                        delta=f"{species_prob*100:.1f}% coincidencia"
-                    )
-
-                # 7. Validación Cruzada de Seguridad (Especie vs Veneno)
-                top_raw_name = top_predictions[0]["raw_name"]
-                safety_check = cross_validate_venom_risk(top_raw_name, is_venomous)
-                if safety_check["warning_triggered"]:
-                    st.warning(safety_check["warning_message"])
-
-                # 8. Renderizado de Recomendaciones Médicas
-                recommendations_to_display = (
-                    safety_check["recommendations"] 
-                    if safety_check["warning_triggered"] 
-                    else venom_recommendations
+            
+            with col_species:
+                st.metric(
+                    label="Especie Detectada",
+                    value=species_name,
+                    delta=f"{species_prob*100:.1f}% coincidencia"
                 )
 
-                if recommendations_to_display:
-                    st.error("🚨 **ATENCIÓN: RECOMENDACIONES DE PRIMEROS AUXILIOS**")
-                    
-                    col_do, col_dont = st.columns(2)
-                    
-                    with col_do:
-                        st.markdown("### ✅ **Qué HACER**")
-                        for item in recommendations_to_display["que_hacer"]:
-                            st.markdown(f"- {item}")
-                            
-                    with col_dont:
-                        st.markdown("### ❌ **Lo que NUNCA debes hacer**")
-                        for item in recommendations_to_display["nunca_hacer"]:
-                            st.markdown(f"- {item}")
+            # 6. Validación Cruzada de Seguridad (Especie vs Veneno)
+            top_raw_name = top_predictions[0]["raw_name"]
+            safety_check = cross_validate_venom_risk(top_raw_name, is_venomous)
+            if safety_check["warning_triggered"]:
+                st.warning(safety_check["warning_message"])
 
-                # 9. Desglose del Top de Predicciones de Especie
-                with st.expander("📊 Ver Top de Coincidencias de Especies", expanded=True):
-                    st.write("Ranking de las especies más probables identificadas por el modelo:")
-                    for idx, pred in enumerate(top_predictions, 1):
-                        prob_percent = pred['probability'] * 100
-                        st.write(f"**{idx}. {pred['spanish_name']}** (`{pred['raw_name']}`) — {prob_percent:.2f}%")
-                        st.progress(min(pred['probability'], 1.0))
+            # 7. Renderizado de Recomendaciones Médicas
+            recommendations_to_display = (
+                safety_check["recommendations"] 
+                if safety_check["warning_triggered"] 
+                else venom_recommendations
+            )
 
-                # 10. Mapa de Atención (Grad-CAM)
-                if show_gradcam:
-                    st.divider()
-                    st.subheader("🔥 Mapa de Atención (Grad-CAM)")
-                    st.info("Visualización de las regiones clave en las que se enfocó el modelo para determinar la especie.")
-                    
-                    with st.spinner("Generando mapa de calor Grad-CAM..."):
-                        cam_image = generate_gradcam(species_model, image_np)
+            if recommendations_to_display:
+                st.error("🚨 **ATENCIÓN: RECOMENDACIONES DE PRIMEROS AUXILIOS**")
+                
+                col_do, col_dont = st.columns(2)
+                
+                with col_do:
+                    st.markdown("### ✅ **Qué HACER**")
+                    for item in recommendations_to_display["que_hacer"]:
+                        st.markdown(f"- {item}")
                         
-                        col_orig, col_cam = st.columns(2)
-                        with col_orig:
-                            st.image(image, caption="Imagen Original", use_container_width=True)
-                        with col_cam:
-                            st.image(cam_image, caption="Mapa de Calor (Atención)", use_container_width=True)
+                with col_dont:
+                    st.markdown("### ❌ **Lo que NUNCA debes hacer**")
+                    for item in recommendations_to_display["nunca_hacer"]:
+                        st.markdown(f"- {item}")
+
+            # 8. Desglose del Top de Predicciones de Especie
+            with st.expander("📊 Ver Top de Coincidencias de Especies", expanded=True):
+                st.write("Ranking de las especies más probables identificadas por el modelo:")
+                for idx, pred in enumerate(top_predictions, 1):
+                    prob_percent = pred['probability'] * 100
+                    st.write(f"**{idx}. {pred['spanish_name']}** (`{pred['raw_name']}`) — {prob_percent:.2f}%")
+                    st.progress(min(pred['probability'], 1.0))
+
+            # 9. Mapa de Atención (Grad-CAM)
+            if show_gradcam:
+                st.divider()
+                st.subheader("🔥 Mapa de Atención (Grad-CAM)")
+                st.info("Visualización de las regiones clave en las que se enfocó el modelo para determinar la especie.")
+                
+                with st.spinner("Generando mapa de calor Grad-CAM..."):
+                    cam_image = generate_gradcam(species_model, image_np)
+                    
+                    col_orig, col_cam = st.columns(2)
+                    with col_orig:
+                        st.image(image, caption="Imagen Original", use_container_width=True)
+                    with col_cam:
+                        st.image(cam_image, caption="Mapa de Calor (Atención)", use_container_width=True)
 
         except Exception as e:
             st.error(f"Ocurrió un error durante el procesamiento: {str(e)}")
