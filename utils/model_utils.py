@@ -13,7 +13,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torchvision import models
-from PIL import ImageOps, Image
+from PIL import Image
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 
@@ -274,87 +274,60 @@ def overlay_heatmap(original_rgb: np.ndarray, cam: np.ndarray, alpha: float = 0.
     return overlay
 
 # ---------------------------------------------------------------------------
-# Funciones de preprocesamiento y predicción ajustadas
+# Funciones de Predicción
 # ---------------------------------------------------------------------------
-def preprocess_high_res_image(image_rgb: np.ndarray, target_size: int = 416) -> np.ndarray:
-    """
-    Realiza un recorte centrado manteniendo proporción e interpola exactamente
-    a la resolución objetivo de entrenamiento (416x416) usando LANCZOS.
-    Evita la deformación por escala y elimina el ruido de alta resolución.
-    """
-    pil_img = Image.fromarray(image_rgb)
-    
-    # Recorte cuadrado centrado
-    width, height = pil_img.size
-    min_dim = min(width, height)
-    
-    left = (width - min_dim) / 2
-    top = (height - min_dim) / 2
-    right = (width + min_dim) / 2
-    bottom = (height + min_dim) / 2
-    
-    pil_img_cropped = pil_img.crop((left, top, right, bottom))
-    
-    # Reescalado exacto a 416x416 con resampling LANCZOS (suaviza bordes y elimina artefactos)
-    pil_img_resized = pil_img_cropped.resize((target_size, target_size), Image.Resampling.LANCZOS)
-    
-    return np.array(pil_img_resized)
-
-
 def predict_presence(presence_model, image_rgb: np.ndarray, min_confidence: float = 0.85):
     """
-    Evalúa la presencia usando YOLO Classification con preprocesamiento adaptado al entrenamiento,
-    verificación de espacio de color y depuración en consola.
+    Evalúa la presencia usando YOLO Classification.
+    Convierte el numpy array RGB a PIL.Image para asegurar que YOLO procese
+    la imagen en su espacio de color real y la reescale automáticamente 
+    a la resolución con la que fue entrenado el modelo (.pt).
     """
-    # 1. Validación de seguridad para canal de color
-    # Si la imagen viene de cv2.imread sin cvtColor, el canal azul suele dominar en la piel humana
-    if len(image_rgb.shape) == 3 and image_rgb.shape[2] == 3:
-        # Si la media del primer canal es mucho mayor que el tercero en fotos normales, puede estar en BGR
-        # Por seguridad, asegurarnos de que la entrada sea la esperada
-        pass
+    if image_rgb is None or image_rgb.size == 0:
+        raise ValueError("La imagen de entrada está vacía o no es válida.")
 
-    # 2. Reescalado centrado exacto a 416x416 con LANCZOS
-    img_processed = preprocess_high_res_image(image_rgb, target_size=416)
+    # 1. Convertir a PIL Image para mantener canales RGB nativos
+    pil_image = Image.fromarray(image_rgb)
     
-    # 3. Inferencia en YOLO
-    results = presence_model(img_processed, verbose=False)[0]
+    # 2. Inferencia en YOLO (YOLO redimensiona internamente según los pesos)
+    results = presence_model(pil_image, verbose=False)[0]
     
     probs = results.probs
     top1_idx = int(probs.top1)
     
-    # Obtener el mapa de clases del modelo {idx: nombre}
+    # Obtener el mapa de clases {idx: nombre}
     class_names_map = results.names
     raw_class_name = str(class_names_map[top1_idx]).lower().strip()
     top1_conf = float(probs.top1conf.cpu())
 
+    # 3. Buscar el índice específico de la clase 'snake'
+    snake_class_idx = None
+    for idx, name in class_names_map.items():
+        if str(name).lower().strip() in ["snake", "snakes", "serpiente", "1"]:
+            snake_class_idx = int(idx)
+            break
+
+    # 4. Extraer la probabilidad real atribuida a la clase 'snake'
+    if snake_class_idx is not None and hasattr(probs, 'data'):
+        all_probs = probs.data.cpu().numpy()
+        snake_probability = float(all_probs[snake_class_idx])
+    else:
+        is_snake_top = raw_class_name in ["snake", "snakes", "serpiente", "1"]
+        snake_probability = top1_conf if is_snake_top else (1.0 - top1_conf)
+
     # --- IMPRESIÓN DE DEPURACIÓN EN CONSOLA ---
     print("\n--- [DEBUG predict_presence] ---")
+    print(f"Dimensión de entrada PIL: {pil_image.size} (Ancho x Alto)")
     print(f"Diccionario de Clases: {class_names_map}")
-    print(f"Índice Top 1: {top1_idx} | Nombre Clase: '{raw_class_name}'")
-    print(f"Confianza Top 1: {top1_conf:.4f}")
-    if hasattr(probs, 'data'):
-        print(f"Probabilidades por clase: {probs.data.tolist()}")
+    print(f"Clase predicha (Top 1): '{raw_class_name}' (Índice: {top1_idx}) | Confianza: {top1_conf:.4f}")
+    print(f"Probabilidad de SERPIENTE: {snake_probability:.4f}")
     print("----------------------------------\n")
 
-    # 4. Evaluación flexible del nombre de la clase
-    # Acepta variaciones comunes como 'snake', 'snakes', 'serpiente', '1', etc.
+    # 5. Evaluación de decisión final
     is_snake_class = raw_class_name in ["snake", "snakes", "serpiente", "1"]
+    has_snake = is_snake_class and (top1_conf >= min_confidence)
 
-    # 5. Lógica de decisión
-    if is_snake_class and top1_conf >= min_confidence:
-        has_snake = True
-        return has_snake, top1_conf
-    elif is_snake_class and top1_conf < min_confidence:
-        # Se detectó la clase 'snake' pero no alcanza el umbral de confianza exigido
-        has_snake = False
-        return has_snake, top1_conf
-    else:
-        # La clase detectada fue 'no_snake' / 'fondo'
-        has_snake = False
-        # Si la clase predicha no es serpiente, la probabilidad de que SEA serpiente
-        # es el complemento de la confianza de no_snake
-        snake_prob = 1.0 - top1_conf
-        return has_snake, snake_prob
+    return has_snake, snake_probability
 
 
 def predict_species(model: nn.Module, image_rgb: np.ndarray, json_path: str = "models/class_name.json"):
