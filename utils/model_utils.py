@@ -13,6 +13,7 @@ import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from ultralytics import YOLO
 from torchvision import models, transforms
 from PIL import Image
 
