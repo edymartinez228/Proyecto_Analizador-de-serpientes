@@ -1,9 +1,15 @@
-streamlit
-torch
-torchvision
-ultralytics
-tensorflow
-albumentations
-opencv-python-headless
-Pillow
-numpy
+# Motor de deep learning (arquitectura EfficientNet-B0 y B2 vienen incluidas en torchvision)
+torch==2.3.1
+torchvision==0.18.1
+
+# Preprocesamiento de imágenes: exactamente el mismo usado en entrenamiento
+# (letterbox resize + normalización). Usar otra librería puede dar resultados
+# distintos a los que el modelo aprendió.
+albumentations==1.4.10
+opencv-python-headless==4.10.0.84
+
+# Manejo numérico
+numpy==1.26.4
+
+# Solo necesario si vas a re-generar o inspeccionar class_names.json desde el CSV original
+pandas==2.2.2
