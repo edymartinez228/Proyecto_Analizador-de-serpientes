@@ -274,18 +274,17 @@ def overlay_heatmap(original_rgb: np.ndarray, cam: np.ndarray, alpha: float = 0.
     return overlay
 
 # ---------------------------------------------------------------------------
-# Funciones de predicción de alto nivel para app.py
+# Funciones de preprocesamiento y predicción ajustadas
 # ---------------------------------------------------------------------------
 def preprocess_high_res_image(image_rgb: np.ndarray, target_size: int = 416) -> np.ndarray:
     """
-    Toma una imagen (NumPy RGB) de alta resolución, la recorta/rellena
-    manteniendo la relación de aspecto y la ajusta al tamaño objetivo del modelo.
-    evitando la deformación que causa falsos positivos.
+    Realiza un recorte centrado manteniendo proporción e interpola exactamente
+    a la resolución objetivo de entrenamiento (416x416) usando LANCZOS.
+    Evita la deformación por escala y elimina el ruido de alta resolución.
     """
-    # Convertir a PIL para manipular relación de aspecto de forma limpia
     pil_img = Image.fromarray(image_rgb)
     
-    # Hacer un crop cuadrado al centro (conserva el objeto principal sin deformar)
+    # Recorte cuadrado centrado
     width, height = pil_img.size
     min_dim = min(width, height)
     
@@ -296,16 +295,17 @@ def preprocess_high_res_image(image_rgb: np.ndarray, target_size: int = 416) -> 
     
     pil_img_cropped = pil_img.crop((left, top, right, bottom))
     
-    # Redimensionar suavemente con suavizado bilinear al tamaño objetivo
-    pil_img_resized = pil_img_cropped.resize((target_size, target_size), Image.Resampling.BILINEAR)
+    # Reescalado exacto a 416x416 con resampling LANCZOS (suaviza bordes y elimina artefactos)
+    pil_img_resized = pil_img_cropped.resize((target_size, target_size), Image.Resampling.LANCZOS)
     
     return np.array(pil_img_resized)
 
+
 def predict_presence(presence_model, image_rgb, min_confidence=0.85):
     """
-    Evalúa la presencia usando YOLO Classification con preprocesamiento anti-deformación.
+    Evalúa la presencia usando YOLO Classification con preprocesamiento adaptado al entrenamiento.
     """
-    # 1. Preprocesar la foto de alta resolución sin deformarla
+    # 1. Ajustar a resolución exacta de entrenamiento (416x416)
     img_processed = preprocess_high_res_image(image_rgb, target_size=416)
     
     # 2. Inferencia en YOLO
@@ -316,13 +316,19 @@ def predict_presence(presence_model, image_rgb, min_confidence=0.85):
     top1_class = str(results.names[top1_idx]).lower().strip()
     top1_conf = float(probs.top1conf.cpu())
 
-    # 3. Evaluación estricta de la clase
+    # 3. Lógica de decisión y calibración de probabilidad devuelta
     if top1_class == "snake" and top1_conf >= min_confidence:
         has_snake = True
-    else:
+        return has_snake, top1_conf
+    elif top1_class == "snake" and top1_conf < min_confidence:
+        # Detectó rasgos pero no supera el umbral
         has_snake = False
-
-    return has_snake, top1_conf
+        return has_snake, top1_conf
+    else:
+        # La clase principal fue 'no_snake'
+        has_snake = False
+        snake_prob = 1.0 - top1_conf  # Probabilidad real asignada a que SEA serpiente
+        return has_snake, snake_prob
 
 
 def predict_species(model: nn.Module, image_rgb: np.ndarray, json_path: str = "models/class_name.json"):
