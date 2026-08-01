@@ -36,10 +36,9 @@ st.markdown("""
 @st.cache_resource
 def get_presence_model():
     paths = [
-        "models/best.pt",
+        "models/modelo_presencia.pt", # <-- PON AQUÍ EL NOMBRE EXACTO DE TU MODELO ENTRENADO
         "models/modelo_serpiente.pt",
-        "models/modelo_presencia.pt",
-        "models/detector_serpientes_best.pt"
+        "models/modelo_presencia.pth"
     ]
     selected_path = next((p for p in paths if os.path.exists(p)), None)
     
@@ -49,8 +48,8 @@ def get_presence_model():
     
     model = load_presence_model(selected_path)
     
-    # Imprimir información en la consola de Streamlit para diagnóstico
-    print(f"--> Modelo de presencia cargado desde: {selected_path}")
+    # Imprimir en los logs de Streamlit para verificar qué modelo y clases se cargan
+    print(f"--> Modelo de presencia cargado exitosamente desde: {selected_path}")
     if hasattr(model, "names"):
         print(f"--> Clases registradas en el modelo: {model.names}")
         
