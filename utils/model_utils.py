@@ -307,61 +307,42 @@ def overlay_heatmap(original_rgb: np.ndarray, cam: np.ndarray, alpha: float = 0.
 # ---------------------------------------------------------------------------
 # Funciones de Predicción Adaptativas
 # ---------------------------------------------------------------------------
-def predict_presence(presence_model, image_rgb: np.ndarray, min_confidence: float = 0.85):
+def predict_presence(presence_model, image_rgb: np.ndarray, min_confidence: float = 0.60):
     """
-    Evalúa presencia en imágenes de cualquier resolución.
-
-    IMPORTANTE: Si se le pasa la imagen "cruda" a un modelo YOLO de clasificación,
-    Ultralytics aplica internamente Resize(lado corto) + CenterCrop(imgsz). Eso
-    RECORTA los bordes de cualquier imagen que no sea cuadrada (fotos verticales
-    de celular, panorámicas, capturas de cámara web), pudiendo cortar la serpiente
-    fuera del encuadre si no está perfectamente centrada. Por eso aquí aplicamos
-    manualmente el mismo letterbox (padding gris, sin recortar ni deformar) que ya
-    se usa para los modelos de veneno/especie, y lo dejamos ya del tamaño exacto
-    que espera el modelo (imgsz) para que el CenterCrop interno de YOLO no tenga
-    nada que recortar.
+    Evalúa si hay una serpiente utilizando la salida exacta del modelo YOLOv8-cls
+    entrenado con las clases [0: 'no_snake', 1: 'snake'].
     """
     if image_rgb is None or image_rgb.size == 0:
         raise ValueError("La imagen de entrada está vacía o no es válida.")
 
-    # Tamaño de entrada con el que se entrenó el modelo (416 en este proyecto,
-    # pero lo leemos del propio modelo para no depender de un valor fijo)
+    # 1. Ajuste de dimensiones respetando el letterbox
     target_size = int(presence_model.overrides.get("imgsz", 416))
-
-    # Letterbox: redimensiona preservando aspecto y rellena con gris neutro,
-    # igual que resize_aspect_ratio_pad ya hace para los otros modelos
     padded_img = resize_aspect_ratio_pad(image_rgb, target_size=target_size)
     pil_image = Image.fromarray(padded_img)
 
-    # imgsz=target_size explícito: como la imagen ya viene en ese tamaño exacto,
-    # el Resize/CenterCrop interno de YOLO se vuelve un no-op
+    # 2. Inferencia con YOLO
     results = presence_model(pil_image, imgsz=target_size, verbose=False)[0]
     
-    probs = results.probs
-    top1_idx = int(probs.top1)
+    # Obtener el mapa de nombres ({0: 'no_snake', 1: 'snake'})
+    names_map = results.names
     
-    class_names_map = results.names
-    raw_class_name = str(class_names_map[top1_idx]).lower().strip()
-    top1_conf = float(probs.top1conf.cpu())
-
-    # Buscar índice de la clase 'snake'
-    snake_class_idx = None
-    for idx, name in class_names_map.items():
-        if str(name).lower().strip() in ["snake", "snakes", "serpiente", "1"]:
-            snake_class_idx = int(idx)
+    # Encontrar el índice dinámicamente según el nombre de la clase
+    snake_idx = None
+    for idx, class_name in names_map.items():
+        if str(class_name).lower().strip() == "snake":
+            snake_idx = int(idx)
             break
+            
+    # Si por algún motivo no la encuentra por nombre, asumimos el índice 1
+    if snake_idx is None:
+        snake_idx = 1
 
-    # Extraer probabilidad real de la clase serpiente
-    if snake_class_idx is not None and hasattr(probs, 'data'):
-        all_probs = probs.data.cpu().numpy()
-        snake_probability = float(all_probs[snake_class_idx])
-    else:
-        is_snake_top = raw_class_name in ["snake", "snakes", "serpiente", "1"]
-        snake_probability = top1_conf if is_snake_top else (1.0 - top1_conf)
+    # 3. Extraer la probabilidad pura de que sea una serpiente
+    all_probs = results.probs.data.cpu().numpy()
+    snake_probability = float(all_probs[snake_idx])
 
-    # Evaluación final de presencia
-    is_snake_class = raw_class_name in ["snake", "snakes", "serpiente", "1"]
-    has_snake = is_snake_class and (top1_conf >= min_confidence)
+    # 4. Determinar si supera el umbral configurado
+    has_snake = snake_probability >= min_confidence
 
     return has_snake, snake_probability
 
