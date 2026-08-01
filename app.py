@@ -1,6 +1,6 @@
 import os
 import streamlit as st
-from PIL import Image
+from PIL import Image, ImageOps
 import numpy as np
 
 # Importar funciones de utilidad desde utils/model_utils.py
@@ -106,7 +106,7 @@ else:
     image_file = st.camera_input("Toma una fotografía de la serpiente")
 
 # Umbral estricto para evitar falsos positivos en rostros y paredes
-PRESENCE_THRESHOLD = 0.90
+PRESENCE_THRESHOLD = 0.85
 VENOM_THRESHOLD = 0.50
 
 # --- PROCESAMIENTO Y EJECUCIÓN DEL PIPELINE ---
@@ -115,23 +115,28 @@ if image_file is not None:
     st.divider()
     st.subheader("🖼️ Imagen a Analizar")
     
-    # Cargar imagen y convertir a RGB
+    # 1. Cargar imagen y normalizar orientación de celular (EXIF)
     image = Image.open(image_file).convert("RGB")
-    st.image(image, caption="Imagen cargada", use_container_width=True)
+    image = ImageOps.exif_transpose(image)
+    
+    # 2. Reducir resoluciones gigantescas de celulares (48 MP -> Max 1024px)
+    image.thumbnail((1024, 1024), Image.Resampling.LANCZOS)
+    
+    st.image(image, caption="Imagen cargada y optimizada", use_container_width=True)
     
     with st.spinner("Analizando la imagen con los modelos de IA..."):
         try:
-            # Convertir imagen PIL a arreglo NumPy AL INICIO
+            # Convertir la imagen optimizada a arreglo NumPy
             image_np = np.array(image)
 
-            # 1. Cargar modelo de presencia y evaluar
+            # 3. Cargar modelo de presencia y evaluar
             presence_model = get_presence_model()
             has_snake, presence_prob = predict_presence(presence_model, image_np, PRESENCE_THRESHOLD)
 
             st.subheader("📊 Resultados del Análisis")
 
             if not has_snake:
-                st.warning(f"⚠️ No se detectó ninguna serpiente en la imagen (Confianza del filtro: {presence_prob*100:.1f}%).")
+                st.warning(f"⚠️ No se detectó ninguna serpiente en la imagen (Confianza de coincidencia: {presence_prob*100:.1f}%).")
                 st.info("💡 **Consejo:** Acércate un poco más al objetivo o asegúrate de enfocar bien al reptil y contar con buena iluminación.")
             
             else:
@@ -141,10 +146,10 @@ if image_file is not None:
                 venom_model = get_venom_model()
                 species_model = get_species_model()
 
-                # 2. Análisis de Veneno
+                # 4. Análisis de Veneno
                 is_venomous, venom_prob = predict_venom(venom_model, image_np, VENOM_THRESHOLD)
                 
-                # 3. Clasificación de Especie
+                # 5. Clasificación de Especie
                 species_name, species_prob = predict_species(species_model, image_np)
                 
                 col_venom, col_species = st.columns(2)
@@ -163,7 +168,7 @@ if image_file is not None:
                         delta=f"{species_prob*100:.1f}% coincidencia"
                     )
 
-                # 4. Mapa de Atención (Grad-CAM)
+                # 6. Mapa de Atención (Grad-CAM)
                 if show_gradcam:
                     st.divider()
                     st.subheader("🔥 Mapa de Atención (Grad-CAM)")
