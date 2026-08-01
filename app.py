@@ -92,18 +92,32 @@ st.markdown(
         .badge-safe { background-color: #D1FAE5; color: #065F46; }
         .badge-info { background-color: #E0F2FE; color: #075985; }
 
-        /* Contenedores de Recomendaciones */
+        /* Contenedores envolventes de Recomendaciones */
         .recom-container-do {
-            background-color: rgba(16, 185, 129, 0.04);
-            border: 1px solid rgba(16, 185, 129, 0.2);
+            background-color: rgba(16, 185, 129, 0.05);
+            border: 2px solid #10B981;
             border-radius: 12px;
-            padding: 18px;
+            padding: 20px;
+            height: 100%;
         }
         .recom-container-dont {
-            background-color: rgba(239, 68, 68, 0.04);
-            border: 1px solid rgba(239, 68, 68, 0.2);
+            background-color: rgba(239, 68, 68, 0.05);
+            border: 2px solid #EF4444;
             border-radius: 12px;
-            padding: 18px;
+            padding: 20px;
+            height: 100%;
+        }
+        .recom-title-do {
+            color: #065F46;
+            font-size: 1.1rem;
+            font-weight: 700;
+            margin-bottom: 12px;
+        }
+        .recom-title-dont {
+            color: #991B1B;
+            font-size: 1.1rem;
+            font-weight: 700;
+            margin-bottom: 12px;
         }
     </style>
 """,
@@ -170,6 +184,7 @@ VENOM_THRESHOLD = 0.50
 if image_file is not None:
     st.markdown("---")
 
+    # 1. Mostrar la imagen cargada
     image = Image.open(image_file).convert("RGB")
     image = ImageOps.exif_transpose(image)
 
@@ -181,6 +196,7 @@ if image_file is not None:
             use_container_width=True,
         )
 
+    # Inferencia con redes neuronales
     with st.status("🔮 Analizando imagen con redes neuronales...", expanded=True) as status:
         try:
             image_np = np.array(image)
@@ -212,27 +228,26 @@ if image_file is not None:
 
     st.write("")
 
-    # --- CONTROL DE CONTRADICCIÓN Y VALIDACIÓN CRUZADA ---
+    # --- 2. APARTADO DE MENSAJE POR CONTRADICCIÓN ENTRE MODELOS ---
+    # (Ubicado exactamente entre la imagen/proceso y los resultados)
     top_raw_name = top_predictions[0]["raw_name"]
     safety_check = cross_validate_venom_risk(top_raw_name, is_venomous)
-
-    # El veredicto final prioritario se toma siempre de la evaluación de veneno
     final_is_venomous = is_venomous
 
-    # APARTADO ESPECIAL: Notificación de Contradicción / Falso Positivo
+    # Evaluamos si hay contradicción (ej. Especie clasificada como no venenosa vs Modelo de veneno positivo, o viceversa)
     if safety_check["warning_triggered"]:
         st.error(
-            f"🚨 **APARTADO DE SEGURIDAD: DETECTADA CONTRADICCIÓN ENTRE MODELOS**\n\n"
-            f"Existe una discrepancia entre la especie identificada (**{species_name}**) y la probabilidad de veneno calculada.\n\n"
-            f"⚠️ **Atención:** En este caso, ante la posibilidad de que la clasificación de la especie sea un **falso positivo**, "
-            f"el sistema ha tomado prioritariamente los **aspectos indicativos del detector de veneno** ({venom_prob*100:.1f}% de riesgo).\n\n"
-            f"👉 **Recomendación:** Mantén la distancia y actúa como si la serpiente representara un riesgo real."
+            f"⚠️ **ADVERTENCIA: MODELOS CONTRADICTORIOS (POSIBLE FALSO POSITIVO)**\n\n"
+            f"Se detectó una discrepancia entre el modelo de especie (**{species_name}**) y el modelo de veneno.\n\n"
+            f"📌 **Criterio de Seguridad:** En caso de que la clasificación de la especie sea un **falso positivo**, "
+            f"se han tomado prioritariamente los **aspectos e indicadores del modelo de veneno** ({venom_prob*100:.1f}% de probabilidad)."
         )
+        st.write("")
 
-    # --- RESULTADOS DESTACADOS (TARJETAS) ---
+    # --- 3. RESULTADOS DESTACADOS (TARJETAS) ---
     col_venom, col_species = st.columns(2, gap="medium")
 
-    # Tarjeta de Veneno (Muestra el valor final prioritario)
+    # Tarjeta de Veneno
     with col_venom:
         card_class = "danger" if final_is_venomous else "safe"
         badge_class = "badge-danger" if final_is_venomous else "badge-safe"
@@ -264,7 +279,7 @@ if image_file is not None:
 
     st.write("")
 
-    # --- RECOMENDACIONES DE SEGURIDAD ---
+    # --- 4. RECOMENDACIONES EN CUADROS VERDE Y ROJO COMPLETOS ---
     recommendations_to_display = (
         safety_check["recommendations"]
         if safety_check["warning_triggered"] and safety_check.get("recommendations")
@@ -277,24 +292,44 @@ if image_file is not None:
 
         col_do, col_dont = st.columns(2, gap="medium")
 
+        # Cuadro Verde Envolvente (Acciones Recomendadas)
         with col_do:
-            st.markdown('<div class="recom-container-do">', unsafe_allow_html=True)
-            st.markdown("#### ✅ **Acciones Recomendadas**")
-            for item in recommendations_to_display.get("que_hacer", []):
-                st.markdown(f"• {item}")
-            st.markdown("</div>", unsafe_allow_html=True)
+            do_items_html = "".join(
+                [f"<li style='margin-bottom: 6px;'>{item}</li>" for item in recommendations_to_display.get("que_hacer", [])]
+            )
+            st.markdown(
+                f"""
+                <div class="recom-container-do">
+                    <div class="recom-title-do">✅ Qué HACER</div>
+                    <ul style="margin: 0; padding-left: 20px; color: #047857;">
+                        {do_items_html}
+                    </ul>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
+        # Cuadro Rojo Envolvente (Acciones Prohibidas)
         with col_dont:
-            st.markdown('<div class="recom-container-dont">', unsafe_allow_html=True)
-            st.markdown("#### ❌ **Acciones Prohibidas**")
-            for item in recommendations_to_display.get("nunca_hacer", []):
-                st.markdown(f"• {item}")
-            st.markdown("</div>", unsafe_allow_html=True)
+            dont_items_html = "".join(
+                [f"<li style='margin-bottom: 6px;'>{item}</li>" for item in recommendations_to_display.get("nunca_hacer", [])]
+            )
+            st.markdown(
+                f"""
+                <div class="recom-container-dont">
+                    <div class="recom-title-dont">❌ Lo que NUNCA debes hacer</div>
+                    <ul style="margin: 0; padding-left: 20px; color: #B91C1C;">
+                        {dont_items_html}
+                    </ul>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
     st.write("")
     st.write("")
 
-    # --- PESTAÑAS (TABS) PARA DETALLES AVANZADOS ---
+    # --- 5. PESTAÑAS (TABS) PARA DETALLES AVANZADOS ---
     tab_rankings, tab_gradcam = st.tabs(
         ["📊 Ranking de Especies", "🔥 Mapa de Atención (Grad-CAM)"]
     )
