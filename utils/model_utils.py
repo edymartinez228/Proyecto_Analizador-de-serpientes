@@ -388,27 +388,27 @@ def overlay_heatmap(original_rgb: np.ndarray, cam: np.ndarray, alpha: float = 0.
 # ---------------------------------------------------------------------------
 # En utils/model_utils.py
 
-def predict_presence(model, image_np: np.ndarray, threshold: float = 0.60):
+def predict_presence(model, image_np: np.ndarray, threshold: float = 0.50):
     """
-    Inferencia con YOLOv8. Revisa todas las detecciones sin importar la clase.
+    Inferencia corregida para YOLOv8: convierte RGB a BGR para que la red
+    reconozca los colores reales de la serpiente.
     """
-    # 1. Asegurar que la imagen sea un array NumPy en formato uint8
     if not isinstance(image_np, np.ndarray):
         image_np = np.array(image_np)
 
-    # 2. Inferencia con YOLO (forzando verbose=False para no saturar logs)
-    results = model.predict(source=image_np, verbose=False)
+    # CORRECCIÓN CRÍTICA: Convertir RGB (PIL) a BGR (OpenCV / YOLO)
+    image_bgr = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
+
+    # Inferencia
+    results = model.predict(source=image_bgr, verbose=False)
     
     if results and len(results) > 0:
         boxes = results[0].boxes
         
-        # Si YOLO encontró al menos una caja
         if boxes is not None and len(boxes) > 0 and boxes.conf is not None:
-            # Obtener la confianza máxima encontrada
             confidences = boxes.conf.cpu().numpy()
             max_conf = float(np.max(confidences))
             
-            # Imprimir en la consola para depuración
             print(f"--> [DEBUG YOLO] Cajas detectadas: {len(boxes)} | Máxima confianza: {max_conf:.4f}")
             
             has_snake = max_conf >= threshold
