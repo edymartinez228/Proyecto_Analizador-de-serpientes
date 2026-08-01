@@ -278,27 +278,35 @@ def overlay_heatmap(original_rgb: np.ndarray, cam: np.ndarray, alpha: float = 0.
 # ---------------------------------------------------------------------------
 def predict_presence(presence_model, image_rgb, min_confidence=0.85):
     """
-    Evalúa la presencia usando YOLO Classification.
-    Aplica un umbral rígido para evitar falsos positivos en rostros y paredes.
+    Evalúa la presencia usando YOLO Classification con filtro estricto anti-falsos positivos.
     """
-    # 1. Inferencia (Corregido: usamos 'image_rgb', que es el argumento recibido)
-    results = presence_model(image_rgb, imgsz=416, verbose=False)[0]
+    # Resize explícito y conversión BGR para YOLO
+    img_resized = cv2.resize(image_rgb, (416, 416))
     
-    # 2. Obtener probabilidades y nombres de clases
+    # Inferencia
+    results = presence_model(img_resized, verbose=False)[0]
+    
     probs = results.probs
     top1_idx = int(probs.top1)
-    top1_class = results.names[top1_idx]  # 'snake' o 'no_snake'
+    top1_class = str(results.names[top1_idx]).lower().strip()
     top1_conf = float(probs.top1conf.cpu())
 
-    # 3. Regla estricta: Solo es True si la clase ganadora es 'snake' 
-    # Y ADEMÁS supera el umbral del 85% de certeza.
-    if top1_class.lower().strip() == "snake" and top1_conf >= min_confidence:
+    # LÓGICA ESTRICTA:
+    # 1. Si predijo 'no_snake', es definitivamente falso -> has_snake = False
+    # 2. Si predijo 'snake', exige que la confianza supere min_confidence (ej. 85%)
+    if top1_class == "snake" and top1_conf >= min_confidence:
         has_snake = True
-    else:
+        return has_snake, top1_conf
+    elif top1_class == "snake" and top1_conf < min_confidence:
+        # Detectó rasgos de serpiente pero con baja certeza
         has_snake = False
-
-    # Devolvemos 2 valores para coincidir exactamente con app.py
-    return has_snake, top1_conf
+        return has_snake, top1_conf
+    else:
+        # Predijo 'no_snake' (gatos, personas, objetos)
+        has_snake = False
+        # Devolvemos la probabilidad de que SEA serpiente (que es 1 - confianza de no_snake)
+        snake_probability = 1.0 - top1_conf
+        return has_snake, snake_probability
 
 
 def predict_species(model: nn.Module, image_rgb: np.ndarray, json_path: str = "models/class_name.json"):
