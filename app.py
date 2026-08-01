@@ -28,7 +28,6 @@ st.markdown(
         /* Ocultar barra lateral */
         [data-testid="collapsedControl"] { display: none; }
         
-        /* Tipografía general y fondo limpio */
         .main {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
         }
@@ -48,7 +47,7 @@ st.markdown(
             margin-bottom: 1.5rem;
         }
 
-        /* Custom Cards para Metricas */
+        /* Custom Cards para Métricas */
         .metric-card {
             background-color: rgba(255, 255, 255, 0.05);
             border: 1px solid rgba(229, 231, 235, 0.3);
@@ -58,10 +57,6 @@ st.markdown(
             box-shadow: 0 4px 15px rgba(0, 0, 0, 0.03);
             backdrop-filter: blur(8px);
             transition: transform 0.2s ease, box-shadow 0.2s ease;
-        }
-        .metric-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.06);
         }
         
         .metric-card.danger {
@@ -97,7 +92,7 @@ st.markdown(
         .badge-safe { background-color: #D1FAE5; color: #065F46; }
         .badge-info { background-color: #E0F2FE; color: #075985; }
 
-        /* Contenedor de Recomendaciones */
+        /* Contenedores de Recomendaciones */
         .recom-container-do {
             background-color: rgba(16, 185, 129, 0.04);
             border: 1px solid rgba(16, 185, 129, 0.2);
@@ -118,7 +113,6 @@ st.markdown(
 
 # --- CARGA DE MODELOS CON CACHÉ ---
 
-
 @st.cache_resource
 def get_venom_model():
     path = "models/modelo_veneno.weights.h5"
@@ -131,7 +125,6 @@ def get_venom_model():
         raise FileNotFoundError(
             f"❌ No se encontró '{path}'. Archivos en 'models/': {existing}"
         )
-
     return load_venom_model(path)
 
 
@@ -147,7 +140,6 @@ def get_species_model():
         raise FileNotFoundError(
             f"❌ No se encontró '{path}'. Archivos en 'models/': {existing}"
         )
-
     return load_species_model(path)
 
 
@@ -159,7 +151,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Opciones de control en diseño limpio
 col_upload, col_gradcam = st.columns([2.2, 1.2], gap="medium")
 
 with col_upload:
@@ -179,11 +170,9 @@ VENOM_THRESHOLD = 0.50
 if image_file is not None:
     st.markdown("---")
 
-    # 1. Cargar imagen y normalizar orientación
     image = Image.open(image_file).convert("RGB")
     image = ImageOps.exif_transpose(image)
 
-    # Visualización preliminar en columna centrada
     col_img_left, col_img_center, col_img_right = st.columns([1, 2, 1])
     with col_img_center:
         st.image(
@@ -192,10 +181,7 @@ if image_file is not None:
             use_container_width=True,
         )
 
-    # 2. Análisis con Spinner Inteligente
-    with st.status(
-        "🔮 Analizando imagen con redes neuronales...", expanded=True
-    ) as status:
+    with st.status("🔮 Analizando imagen con redes neuronales...", expanded=True) as status:
         try:
             image_np = np.array(image)
 
@@ -226,21 +212,37 @@ if image_file is not None:
 
     st.write("")
 
+    # --- LÓGICA DE VALIDACIÓN DE SEGURIDAD Y CONTRADICCIÓN ---
+    top_raw_name = top_predictions[0]["raw_name"]
+    safety_check = cross_validate_venom_risk(top_raw_name, is_venomous)
+
+    # Evaluación explicita del valor definitivo:
+    # Se PRIORIZA siempre el resultado del modelo de veneno (o la alerta de seguridad)
+    final_is_venomous = is_venomous
+
+    # Si la validación cruzada detectó una contradicción/alerta
+    if safety_check["warning_triggered"]:
+        st.warning(
+            f"⚠️ **ALERTA DE SEGURIDAD / POSIBLE FALSO POSITIVO:**\n\n"
+            f"{safety_check['warning_message']}\n\n"
+            f"👉 **Por protocolo de precaución se toma prioritariamente la predicción del modelo de veneno.** Mantén la distancia y extrema precauciones."
+        )
+
     # --- RESULTADOS DESTACADOS (TARJETAS) ---
     col_venom, col_species = st.columns(2, gap="medium")
 
-    # Tarjeta de Veneno
+    # Tarjeta de Veneno (Muestra siempre el diagnóstico prioritario del modelo de veneno)
     with col_venom:
-        card_class = "danger" if is_venomous else "safe"
-        badge_class = "badge-danger" if is_venomous else "badge-safe"
-        status_text = "VENENOSA ⚠️" if is_venomous else "NO VENENOSA 🟢"
+        card_class = "danger" if final_is_venomous else "safe"
+        badge_class = "badge-danger" if final_is_venomous else "badge-safe"
+        status_text = "VENENOSA ⚠️" if final_is_venomous else "NO VENENOSA 🟢"
 
         st.markdown(
             f"""
             <div class="metric-card {card_class}">
-                <div class="card-label">Diagnóstico de Peligrosidad</div>
+                <div class="card-label">Diagnóstico de Peligrosidad (Prioritario)</div>
                 <div class="card-value">{status_text}</div>
-                <span class="card-badge {badge_class}">{venom_prob*100:.1f}% de Certeza</span>
+                <span class="card-badge {badge_class}">{venom_prob*100:.1f}% Certeza de Veneno</span>
             </div>
             """,
             unsafe_allow_html=True,
@@ -261,17 +263,11 @@ if image_file is not None:
 
     st.write("")
 
-    # 3. Validación Cruzada de Seguridad
-    top_raw_name = top_predictions[0]["raw_name"]
-    safety_check = cross_validate_venom_risk(top_raw_name, is_venomous)
-
-    if safety_check["warning_triggered"]:
-        st.warning(f"⚠️ **Inconsistencia Detectada:** {safety_check['warning_message']}")
-
-    # 4. Renderizado de Recomendaciones Médicas
+    # --- RECOMENDACIONES DE SEGURIDAD ---
+    # Si hubo contradicción, priorizamos las recomendaciones de seguridad
     recommendations_to_display = (
         safety_check["recommendations"]
-        if safety_check["warning_triggered"]
+        if safety_check["warning_triggered"] and safety_check.get("recommendations")
         else venom_recommendations
     )
 
@@ -284,14 +280,14 @@ if image_file is not None:
         with col_do:
             st.markdown('<div class="recom-container-do">', unsafe_allow_html=True)
             st.markdown("#### ✅ **Acciones Recomendadas**")
-            for item in recommendations_to_display["que_hacer"]:
+            for item in recommendations_to_display.get("que_hacer", []):
                 st.markdown(f"• {item}")
             st.markdown("</div>", unsafe_allow_html=True)
 
         with col_dont:
             st.markdown('<div class="recom-container-dont">', unsafe_allow_html=True)
             st.markdown("#### ❌ **Acciones Prohibidas**")
-            for item in recommendations_to_display["nunca_hacer"]:
+            for item in recommendations_to_display.get("nunca_hacer", []):
                 st.markdown(f"• {item}")
             st.markdown("</div>", unsafe_allow_html=True)
 
