@@ -35,24 +35,13 @@ st.markdown("""
 
 @st.cache_resource
 def get_presence_model():
-    paths = [
-        "models/modelo_presencia.pt", # <-- PON AQUÍ EL NOMBRE EXACTO DE TU MODELO ENTRENADO
-        "models/modelo_serpiente.pt",
-        "models/modelo_presencia.pth"
-    ]
-    selected_path = next((p for p in paths if os.path.exists(p)), None)
-    
-    if not selected_path:
+    path = "models/modelo_serpiente.pt"
+    if not os.path.exists(path):
         existing = os.listdir("models") if os.path.exists("models") else "Carpeta 'models' no encontrada"
-        raise FileNotFoundError(f"❌ No se encontró el modelo YOLOv8 de presencia (.pt). Archivos disponibles en 'models/': {existing}")
-    
-    model = load_presence_model(selected_path)
-    
-    # Imprimir en los logs de Streamlit para verificar qué modelo y clases se cargan
-    print(f"--> Modelo de presencia cargado exitosamente desde: {selected_path}")
-    if hasattr(model, "names"):
-        print(f"--> Clases registradas en el modelo: {model.names}")
+        raise FileNotFoundError(f"❌ No se encontró '{path}'. Archivos en 'models/': {existing}")
         
+    model = load_presence_model(path)
+    print(f"--> Modelo de presencia cargado desde: {path}")
     return model
 
 
@@ -61,26 +50,19 @@ def get_venom_model():
     path = "models/modelo_veneno.weights.h5"
     if not os.path.exists(path):
         existing = os.listdir("models") if os.path.exists("models") else "Carpeta 'models' no encontrada"
-        raise FileNotFoundError(f"❌ No se encontró '{path}'. Archivos disponibles en 'models/': {existing}")
+        raise FileNotFoundError(f"❌ No se encontró '{path}'. Archivos en 'models/': {existing}")
         
     return load_venom_model(path)
 
 
 @st.cache_resource
 def get_species_model():
-    paths = [
-        "modelo_especie_out/modelo_especie.pth",
-        "models/modelo_especie.pth",
-        "models/modelo_especie.pt",
-        "models/modelo_especie_efficientnet.pth"
-    ]
-    selected_path = next((p for p in paths if os.path.exists(p)), None)
-    
-    if not selected_path:
+    path = "models/modelo_especie.pth"
+    if not os.path.exists(path):
         existing = os.listdir("models") if os.path.exists("models") else "Carpeta 'models' no encontrada"
-        raise FileNotFoundError(f"❌ No se encontró el modelo PyTorch de especies (.pth/.pt). Archivos revisados: {paths}")
+        raise FileNotFoundError(f"❌ No se encontró '{path}'. Archivos en 'models/': {existing}")
         
-    return load_species_model(selected_path)
+    return load_species_model(path)
 
 
 # --- INTERFAZ PRINCIPAL ---
