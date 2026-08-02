@@ -1,12 +1,12 @@
 """
 ===============================================================================
- SNAKELY AI  ·  Analizador de ofidios
- Identificación taxonómica + evaluación de riesgo toxicológico
+ SNAKELY AI  ·  Ficha de campo digital para identificación de ofidios
+ Clasificación taxonómica + evaluación de riesgo toxicológico
 ===============================================================================
 
 Archivo único y autosuficiente. Contiene:
   · bootstrap del tema nativo de Streamlit
-  · sistema de diseño (tokens + CSS)
+  · sistema de diseño «ficha de campo» (tokens + CSS)
   · librería de iconos SVG inline
   · componentes de UI reutilizables
   · pipeline de inferencia e interfaz
@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import base64
 import io
+import math
 import os
 import pathlib
 import re
@@ -44,16 +45,14 @@ from utils.model_utils import (
 
 # =============================================================================
 #  1 · BOOTSTRAP DEL TEMA NATIVO
-#     Streamlit lee .streamlit/config.toml al arrancar el proceso. Se genera si
-#     no existe para que este archivo siga siendo autosuficiente.
 # =============================================================================
 
 _CONFIG_TOML = """[theme]
 base = "dark"
-primaryColor = "#10E098"
-backgroundColor = "#0A0E14"
-secondaryBackgroundColor = "#111721"
-textColor = "#E6EDF7"
+primaryColor = "#3FBF8F"
+backgroundColor = "#0B0E12"
+secondaryBackgroundColor = "#12161C"
+textColor = "#E8E4DB"
 font = "sans serif"
 
 [client]
@@ -78,7 +77,7 @@ def _bootstrap_theme() -> None:
 _bootstrap_theme()
 
 st.set_page_config(
-    page_title="Snakely · Analizador de Ofidios",
+    page_title="Snakely · Ficha de campo",
     page_icon="🐍",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -86,33 +85,72 @@ st.set_page_config(
 
 # =============================================================================
 #  2 · SISTEMA DE DISEÑO
+#     Paleta «tinta y ocre»: fondo de tinta cálida, texto hueso, filetes ocre
+#     de cuaderno técnico y solo dos colores semánticos (jade / bermellón).
 # =============================================================================
 
 THEME = {
-    "bg": "#080B11",
-    "surface": "#10161F",
-    "surface_2": "#161E2A",
-    "surface_3": "#1C2634",
-    "border": "rgba(148, 163, 184, 0.13)",
-    "border_hi": "rgba(148, 163, 184, 0.24)",
-    "text": "#E8EFF9",
-    "muted": "#93A1B5",
-    "dim": "#64748B",
-    "accent": "#10E098",
-    "accent_2": "#6EE7F9",
-    "danger": "#FF4D5E",
-    "warning": "#FFB020",
-    "info": "#3B9EFF",
-    "violet": "#A78BFA",
+    "bg": "#0B0E12",
+    "surface": "#12161C",
+    "surface_2": "#171C24",
+    "surface_3": "#1E242D",
+    "line": "rgba(224, 164, 88, 0.17)",     # filete ocre de la ficha
+    "line_soft": "rgba(224, 164, 88, 0.09)",
+    "rule": "rgba(232, 228, 219, 0.10)",
+    "text": "#E8E4DB",                       # hueso
+    "muted": "#9C978A",
+    "dim": "#6E6C64",
+    "ochre": "#E0A458",                      # color de anotación
+    "jade": "#3FBF8F",                       # seguro
+    "jade_soft": "#7FD9B4",
+    "vermilion": "#E2504E",                  # peligro
+    "vermilion_soft": "#F08D8B",
+    "amber": "#EFB458",                      # precaución
+    "steel": "#5B9FD6",                      # taxonomía
+    "plum": "#9B8AC4",                       # consenso
 }
 
-# Niveles de riesgo. Los cortes se derivan del umbral activo para que la escala
-# siga siendo coherente cuando el usuario mueve el control de sensibilidad.
+# --- modos de sensibilidad, en lenguaje llano ---------------------------------
+SENSITIVITY = {
+    "Precavido": {
+        "threshold": 0.35,
+        "color": THEME["amber"],
+        "short": "Prioriza no pasar por alto ninguna serpiente venenosa.",
+        "long": (
+            "Con este modo basta un <b>35%</b> de indicios para que el ejemplar se marque "
+            "como peligroso. Es el criterio más seguro en campo: reduce al mínimo el riesgo "
+            "de omitir una especie venenosa, a costa de más falsas alarmas."
+        ),
+    },
+    "Equilibrado": {
+        "threshold": 0.50,
+        "color": THEME["jade"],
+        "short": "Punto medio entre falsas alarmas y omisiones.",
+        "long": (
+            "Se marca como peligroso a partir de un <b>50%</b> de indicios. Es el ajuste "
+            "por defecto y el recomendado para uso general: equilibra el coste de una falsa "
+            "alarma con el de una omisión."
+        ),
+    },
+    "Estricto": {
+        "threshold": 0.65,
+        "color": THEME["steel"],
+        "short": "Solo señala los casos con indicios claros.",
+        "long": (
+            "Hace falta un <b>65%</b> de indicios para marcar el ejemplar como peligroso. "
+            "Genera muy pocas falsas alarmas, pero <b>aumenta el riesgo de dar por inocuo "
+            "un ejemplar venenoso</b>. Úsalo solo con fines de estudio, nunca para decidir "
+            "si acercarte a una serpiente."
+        ),
+    },
+}
+
+# --- niveles de riesgo, con cortes derivados del umbral activo ----------------
 _TIER_META = [
-    ("MÍNIMO", THEME["accent"], "Sin indicios morfológicos de toxicidad"),
-    ("BAJO", "#8CE99A", "Indicios débiles, no concluyentes"),
-    ("ELEVADO", THEME["warning"], "Rasgos compatibles con especie venenosa"),
-    ("CRÍTICO", THEME["danger"], "Alta compatibilidad con especie venenosa"),
+    ("MÍNIMO", THEME["jade"], "Sin indicios morfológicos de toxicidad"),
+    ("BAJO", THEME["jade_soft"], "Indicios débiles, no concluyentes"),
+    ("ELEVADO", THEME["amber"], "Rasgos compatibles con especie venenosa"),
+    ("CRÍTICO", THEME["vermilion"], "Alta compatibilidad con especie venenosa"),
 ]
 
 
@@ -134,413 +172,423 @@ _ROOT_VARS = f"""
     --surface: {THEME["surface"]};
     --surface-2: {THEME["surface_2"]};
     --surface-3: {THEME["surface_3"]};
-    --border: {THEME["border"]};
-    --border-hi: {THEME["border_hi"]};
+    --line: {THEME["line"]};
+    --line-soft: {THEME["line_soft"]};
+    --rule: {THEME["rule"]};
     --text: {THEME["text"]};
     --muted: {THEME["muted"]};
     --dim: {THEME["dim"]};
-    --accent: {THEME["accent"]};
-    --accent-2: {THEME["accent_2"]};
-    --danger: {THEME["danger"]};
-    --warning: {THEME["warning"]};
-    --info: {THEME["info"]};
-    --violet: {THEME["violet"]};
-    --radius: 16px;
-    --radius-sm: 11px;
+    --ochre: {THEME["ochre"]};
+    --jade: {THEME["jade"]};
+    --vermilion: {THEME["vermilion"]};
+    --amber: {THEME["amber"]};
+    --steel: {THEME["steel"]};
+    --plum: {THEME["plum"]};
+    --radius: 4px;
     --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+    --serif: 'Spectral', Georgia, 'Times New Roman', serif;
 }}
 """
 
-# CSS en cadena plana: sin llaves escapadas, mucho menos frágil de mantener.
+# El CSS se escribe en una cadena plana y se minifica antes de inyectarlo:
+# una línea en blanco dentro de un bloque HTML hace que Streamlit lo imprima
+# como texto en lugar de aplicarlo.
 _CSS = """
-/* ---------------------------------------------------------------- base --- */
+/* ================================================================= base === */
 [data-testid="collapsedControl"], #MainMenu, footer, header { display: none !important; }
 
 html, body, .stApp, [class*="css"] {
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     -webkit-font-smoothing: antialiased;
-    text-rendering: optimizeLegibility;
+    font-variant-numeric: tabular-nums;
 }
 
+/* Papel milimetrado tenue: el sustrato de toda la ficha. */
 .stApp {
-    background:
-        radial-gradient(1200px 560px at 8% -12%, rgba(16, 224, 152, 0.11), transparent 62%),
-        radial-gradient(1000px 480px at 100% -4%, rgba(59, 158, 255, 0.09), transparent 58%),
-        radial-gradient(760px 420px at 50% 108%, rgba(167, 139, 250, 0.06), transparent 60%),
-        var(--bg);
+    background-color: var(--bg);
+    background-image:
+        linear-gradient(var(--line-soft) 1px, transparent 1px),
+        linear-gradient(90deg, var(--line-soft) 1px, transparent 1px),
+        radial-gradient(900px 500px at 82% -6%, rgba(224,164,88,0.055), transparent 62%),
+        radial-gradient(760px 460px at 6% 4%, rgba(63,191,143,0.05), transparent 60%);
+    background-size: 26px 26px, 26px 26px, 100% 100%, 100% 100%;
     color: var(--text);
 }
 [data-testid="stAppViewContainer"], [data-testid="stMain"],
 [data-testid="stHeader"], [data-testid="stToolbar"] { background: transparent !important; }
 
-.block-container { max-width: 1240px; padding: 2.4rem 2rem 5rem; }
+.block-container { max-width: 1200px; padding: 2rem 2rem 5rem; }
+h1, h2, h3, h4, h5, h6 { color: var(--text) !important; }
+[data-testid="stMarkdownContainer"] p, [data-testid="stMarkdownContainer"] li { color: var(--text); }
 
-h1, h2, h3, h4, h5, h6 { color: var(--text) !important; letter-spacing: -0.02em; }
-[data-testid="stMarkdownContainer"] p,
-[data-testid="stMarkdownContainer"] li { color: var(--text); }
+/* Utilidades tipográficas de la ficha. */
+.mono { font-family: var(--mono); }
+.tag {
+    font-family: var(--mono); font-size: 0.62rem; font-weight: 500;
+    letter-spacing: 0.2em; text-transform: uppercase; color: var(--ochre);
+}
+.tag-dim { color: var(--dim); }
 
-/* ---------------------------------------------------------- animaciones --- */
-@keyframes rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
-@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
-@keyframes sweep { 0% { background-position: -180% 0; } 100% { background-position: 280% 0; } }
-@keyframes pulse-ring { 0% { box-shadow: 0 0 0 0 rgba(255,77,94,0.35); } 70% { box-shadow: 0 0 0 12px rgba(255,77,94,0); } 100% { box-shadow: 0 0 0 0 rgba(255,77,94,0); } }
+/* =========================================================== animaciones === */
+@keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 @keyframes dash { from { stroke-dashoffset: var(--circ); } }
-
+@keyframes blink { 0%, 100% { opacity: .25; } 50% { opacity: 1; } }
 .rise   { animation: rise .5s cubic-bezier(.22,1,.36,1) both; }
-.rise-1 { animation-delay: .05s; }
-.rise-2 { animation-delay: .12s; }
-.rise-3 { animation-delay: .19s; }
-.rise-4 { animation-delay: .26s; }
+.rise-1 { animation-delay: .05s; } .rise-2 { animation-delay: .12s; }
+.rise-3 { animation-delay: .19s; } .rise-4 { animation-delay: .26s; }
 
-/* ---------------------------------------------------------------- hero --- */
-.hero {
-    position: relative; overflow: hidden;
-    border: 1px solid var(--border);
-    border-radius: 22px;
+/* ============================================== marco de lámina (plate) === */
+.plate {
+    position: relative; background: var(--surface);
+    border: 1px solid var(--line); border-radius: var(--radius);
+}
+/* Segundo filete interior: el doble encuadre de las láminas científicas. */
+.plate::before {
+    content: ""; position: absolute; inset: 5px; pointer-events: none;
+    border: 1px solid var(--line-soft); border-radius: 2px;
+}
+/* Puntos de registro en las cuatro esquinas. */
+.plate::after {
+    content: ""; position: absolute; inset: 5px; pointer-events: none;
     background:
-        linear-gradient(155deg, rgba(16,224,152,0.09) 0%, rgba(16,22,31,0.9) 42%, rgba(16,22,31,0.98) 100%);
-    padding: 34px 38px;
-    margin-bottom: 8px;
+        radial-gradient(circle at 0 0,     var(--ochre) 0 1.6px, transparent 1.7px),
+        radial-gradient(circle at 100% 0,  var(--ochre) 0 1.6px, transparent 1.7px),
+        radial-gradient(circle at 0 100%,  var(--ochre) 0 1.6px, transparent 1.7px),
+        radial-gradient(circle at 100% 100%, var(--ochre) 0 1.6px, transparent 1.7px);
+    opacity: .55;
 }
-.hero::before {
-    content: ""; position: absolute; inset: 0; pointer-events: none;
+.plate > * { position: relative; z-index: 1; }
+
+/* Regla graduada: marca menor cada 7px, mayor cada 35px. */
+.ruler {
+    height: 9px; width: 100%;
     background-image:
-        linear-gradient(rgba(148,163,184,0.05) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(148,163,184,0.05) 1px, transparent 1px);
-    background-size: 46px 46px;
-    mask-image: radial-gradient(560px 300px at 88% 12%, #000, transparent 72%);
-    -webkit-mask-image: radial-gradient(560px 300px at 88% 12%, #000, transparent 72%);
+        repeating-linear-gradient(90deg, var(--line) 0 1px, transparent 1px 7px),
+        repeating-linear-gradient(90deg, var(--ochre) 0 1px, transparent 1px 35px);
+    background-size: 100% 4px, 100% 9px;
+    background-repeat: no-repeat;
+    background-position: 0 0, 0 0;
+    opacity: .5;
 }
-.hero::after {
-    content: ""; position: absolute; top: 0; left: 0; right: 0; height: 1px;
-    background: linear-gradient(90deg, transparent, rgba(16,224,152,0.55), rgba(110,231,249,0.35), transparent);
-    background-size: 200% 100%;
-    animation: sweep 5.5s linear infinite;
-}
-.hero > * { position: relative; }
 
-.eyebrow {
-    display: inline-flex; align-items: center; gap: 8px;
-    font-size: 0.66rem; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase;
-    color: var(--accent);
-    background: rgba(16,224,152,0.08);
-    border: 1px solid rgba(16,224,152,0.26);
-    padding: 6px 13px; border-radius: 999px; margin-bottom: 18px;
-}
+/* ================================================================ hero === */
+.hero { padding: 0; overflow: hidden; margin-bottom: 14px; }
+.hero-body { padding: 30px 34px 26px; display: flex; gap: 30px; align-items: flex-start; }
+.hero-left { flex: 1; min-width: 0; }
+.hero-kicker { display: flex; align-items: center; gap: 9px; margin-bottom: 14px; }
+.hero-kicker .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--jade); animation: blink 2.4s ease-in-out infinite; }
 .hero-title {
-    font-size: clamp(2.1rem, 4.6vw, 3rem); font-weight: 800;
-    letter-spacing: -0.042em; line-height: 1.02; margin: 0 0 12px;
+    font-family: var(--serif); font-size: clamp(2.2rem, 5vw, 3.15rem);
+    font-weight: 600; letter-spacing: -0.022em; line-height: 1; margin: 0 0 4px;
+    color: var(--text);
 }
-.hero-title em {
-    font-style: normal;
-    background: linear-gradient(96deg, var(--accent) 0%, var(--accent-2) 100%);
-    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+.hero-title i { font-style: italic; color: var(--ochre); font-weight: 400; }
+.hero-latin { font-family: var(--serif); font-style: italic; font-size: 0.94rem; color: var(--dim); margin: 0 0 16px; }
+.hero-sub { font-size: 0.97rem; color: var(--muted); max-width: 560px; line-height: 1.7; margin: 0; }
+.hero-file {
+    flex-shrink: 0; width: 190px; border-left: 1px solid var(--line); padding-left: 22px;
 }
-.hero-sub { font-size: 1.03rem; color: var(--muted); max-width: 660px; line-height: 1.65; margin: 0; }
+.hero-file .row { display: flex; justify-content: space-between; gap: 10px; padding: 7px 0; border-bottom: 1px dotted var(--rule); }
+.hero-file .row:last-child { border-bottom: none; }
+.hero-file .k { font-family: var(--mono); font-size: 0.6rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); }
+.hero-file .v { font-family: var(--mono); font-size: 0.68rem; color: var(--muted); text-align: right; }
+.hero-caps { display: flex; flex-wrap: wrap; gap: 0; border-top: 1px solid var(--line); }
+.hero-cap {
+    flex: 1 1 190px; display: flex; align-items: center; gap: 10px;
+    padding: 15px 20px; border-right: 1px solid var(--line);
+    font-size: 0.775rem; color: var(--muted);
+}
+.hero-cap:last-child { border-right: none; }
+.hero-cap b { color: var(--text); font-weight: 600; }
 
-.hero-meta {
-    display: flex; flex-wrap: wrap; gap: 10px;
-    margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border);
+/* ============================================================== aviso === */
+.advisory {
+    display: flex; align-items: stretch; gap: 0; margin-bottom: 6px;
+    background: linear-gradient(90deg, rgba(226,80,78,0.075), rgba(18,22,28,0.5) 70%);
+    border: 1px solid rgba(226,80,78,0.3); border-radius: var(--radius);
+    overflow: hidden;
 }
-.chip {
-    display: inline-flex; align-items: center; gap: 8px;
-    font-size: 0.77rem; font-weight: 500; color: var(--muted);
-    background: rgba(148,163,184,0.06);
-    border: 1px solid var(--border);
-    padding: 7px 13px; border-radius: 999px;
+/* Banda de peligro diagonal: el sello de la ficha. */
+.advisory-stripe {
+    width: 13px; flex-shrink: 0;
+    background: repeating-linear-gradient(45deg,
+        rgba(226,80,78,0.85) 0 5px, rgba(11,14,18,0.9) 5px 10px);
 }
-.chip b { color: var(--text); font-weight: 600; }
+.advisory-body { padding: 15px 20px; display: flex; gap: 15px; align-items: flex-start; }
+.advisory-ico { margin-top: 1px; flex-shrink: 0; }
+.advisory-t {
+    font-family: var(--mono); font-size: 0.63rem; font-weight: 700; letter-spacing: 0.19em;
+    text-transform: uppercase; color: var(--vermilion); margin-bottom: 6px;
+}
+.advisory-d { font-size: 0.855rem; line-height: 1.62; color: var(--muted); }
+.advisory-d b { color: var(--text); font-weight: 600; }
 
-/* ------------------------------------------------------------ secciones --- */
-.section { display: flex; align-items: center; gap: 11px; margin: 38px 0 16px; }
-.section .ttl { font-size: 1.06rem; font-weight: 700; letter-spacing: -0.018em; color: var(--text); }
-.section .num {
-    font-family: var(--mono); font-size: 0.68rem; font-weight: 600;
-    color: var(--dim); background: rgba(148,163,184,0.08);
-    border: 1px solid var(--border); padding: 2px 7px; border-radius: 6px;
+/* =========================================================== secciones === */
+.sec { display: flex; align-items: baseline; gap: 12px; margin: 34px 0 15px; }
+.sec-n {
+    font-family: var(--mono); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em;
+    color: var(--ochre); flex-shrink: 0;
 }
-.section .rule { flex: 1; height: 1px; background: linear-gradient(90deg, var(--border-hi), transparent); }
-
-/* ------------------------------------------------------------- tarjetas --- */
-.card {
-    position: relative; overflow: hidden; height: 100%;
-    background: linear-gradient(180deg, var(--surface-2) 0%, var(--surface) 100%);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 24px 26px;
-    transition: border-color .22s ease, transform .22s ease;
+.sec-t { font-size: 1.02rem; font-weight: 700; letter-spacing: -0.012em; color: var(--text); flex-shrink: 0; }
+.sec-rule {
+    flex: 1; height: 4px; align-self: center;
+    background-image: repeating-linear-gradient(90deg, var(--line) 0 2px, transparent 2px 7px);
 }
-.card:hover { border-color: var(--border-hi); }
-.card::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--info); }
-.card.t-danger::before { background: var(--danger); }
-.card.t-safe::before   { background: linear-gradient(180deg, var(--accent), #0B9E6E); }
-.card.t-warn::before   { background: var(--warning); }
-.card.t-danger { background: linear-gradient(140deg, rgba(255,77,94,0.09) 0%, var(--surface) 62%); }
-.card.t-safe   { background: linear-gradient(140deg, rgba(16,224,152,0.08) 0%, var(--surface) 62%); }
-.card.t-info   { background: linear-gradient(140deg, rgba(59,158,255,0.08) 0%, var(--surface) 62%); }
-
-.card-label {
-    display: flex; align-items: center; gap: 8px;
-    font-size: 0.66rem; font-weight: 700; letter-spacing: 0.15em; text-transform: uppercase;
-    color: var(--dim); margin-bottom: 14px;
+.sec-tag {
+    font-family: var(--mono); font-size: 0.6rem; letter-spacing: 0.18em;
+    text-transform: uppercase; color: var(--dim); flex-shrink: 0;
 }
-.card-value { font-size: 1.34rem; font-weight: 800; letter-spacing: -0.028em; line-height: 1.18; color: var(--text); }
-.card-sub { font-size: 0.81rem; color: var(--dim); font-style: italic; margin-top: 4px; }
 
-.badge {
-    display: inline-flex; align-items: center; gap: 6px;
-    font-family: var(--mono); font-size: 0.72rem; font-weight: 600;
-    padding: 5px 11px; border-radius: 999px; margin-top: 12px;
+/* ============================================================ tarjetas === */
+.card { padding: 22px 24px; height: 100%; }
+.card-head {
+    display: flex; align-items: center; gap: 9px; margin-bottom: 16px;
+    padding-bottom: 11px; border-bottom: 1px dotted var(--rule);
 }
-.badge-danger { background: rgba(255,77,94,0.13); color: #FF95A0; border: 1px solid rgba(255,77,94,0.3); }
-.badge-safe   { background: rgba(16,224,152,0.12); color: #63EDBD; border: 1px solid rgba(16,224,152,0.3); }
-.badge-warn   { background: rgba(255,176,32,0.13); color: #FFCC70; border: 1px solid rgba(255,176,32,0.3); }
-.badge-info   { background: rgba(59,158,255,0.12); color: #8AC7FF; border: 1px solid rgba(59,158,255,0.3); }
-
-/* ----------------------------------------------------------- donut svg --- */
-.donut-wrap { display: flex; align-items: center; gap: 24px; }
-.donut { position: relative; flex-shrink: 0; }
-.donut svg { display: block; transform: rotate(-90deg); }
-.donut .arc { animation: dash 1.1s cubic-bezier(.22,1,.36,1) both; }
-.donut-center {
-    position: absolute; inset: 0; display: flex; flex-direction: column;
-    align-items: center; justify-content: center; gap: 1px;
+.card-idx {
+    width: 20px; height: 20px; flex-shrink: 0; border: 1px solid var(--line);
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--mono); font-size: 0.6rem; font-weight: 700; color: var(--ochre);
 }
-.donut-pct { font-family: var(--mono); font-size: 1.42rem; font-weight: 700; letter-spacing: -0.03em; }
-.donut-cap { font-size: 0.56rem; font-weight: 700; letter-spacing: 0.16em; color: var(--dim); }
-.donut-side { min-width: 0; }
+.card-t {
+    font-family: var(--mono); font-size: 0.63rem; font-weight: 600; letter-spacing: 0.17em;
+    text-transform: uppercase; color: var(--muted);
+}
+.card-value { font-size: 1.2rem; font-weight: 700; letter-spacing: -0.02em; line-height: 1.22; color: var(--text); }
+.card-latin { font-family: var(--serif); font-style: italic; font-size: 0.87rem; color: var(--dim); margin-top: 3px; }
+.card-note { font-size: 0.83rem; color: var(--muted); line-height: 1.6; margin-top: 7px; }
 
-/* --------------------------------------------------------- escala tiers --- */
-.tiers { display: flex; gap: 4px; margin-top: 16px; }
-.tier { flex: 1; }
-.tier-bar { height: 4px; border-radius: 999px; background: rgba(148,163,184,0.14); transition: all .3s ease; }
-.tier.on .tier-bar { box-shadow: 0 0 10px currentColor; }
+.tone-danger { border-color: rgba(226,80,78,0.34); background: linear-gradient(160deg, rgba(226,80,78,0.07), var(--surface) 55%); }
+.tone-safe   { border-color: rgba(63,191,143,0.3);  background: linear-gradient(160deg, rgba(63,191,143,0.06), var(--surface) 55%); }
+.tone-info   { border-color: rgba(91,159,214,0.28); background: linear-gradient(160deg, rgba(91,159,214,0.06), var(--surface) 55%); }
+.tone-plum   { border-color: rgba(155,138,196,0.28); }
+
+/* Sello de caucho del dictamen. */
+.stamp {
+    position: absolute; top: 16px; right: 18px; z-index: 2;
+    font-family: var(--mono); font-size: 0.6rem; font-weight: 700; letter-spacing: 0.15em;
+    padding: 5px 10px; border: 2px solid currentColor; border-radius: 3px;
+    transform: rotate(-7deg); opacity: .8; pointer-events: none;
+}
+
+.pill {
+    display: inline-flex; align-items: center; gap: 6px; margin-top: 12px;
+    font-family: var(--mono); font-size: 0.66rem; font-weight: 600; letter-spacing: 0.1em;
+    padding: 5px 10px; border: 1px solid currentColor; border-radius: 2px;
+}
+
+/* =============================================================== dial === */
+.dial-wrap { display: flex; align-items: center; gap: 22px; }
+.dial { position: relative; flex-shrink: 0; }
+.dial svg { display: block; }
+.dial .arc { animation: dash 1.15s cubic-bezier(.22,1,.36,1) both; }
+.dial-c { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.dial-n { font-family: var(--mono); font-size: 1.5rem; font-weight: 700; letter-spacing: -0.04em; line-height: 1; }
+.dial-u { font-family: var(--mono); font-size: 0.54rem; letter-spacing: 0.19em; color: var(--dim); margin-top: 4px; }
+.dial-side { min-width: 0; flex: 1; }
+
+/* ======================================================= escala de nivel === */
+.tiers { display: flex; margin-top: 18px; border-top: 1px dotted var(--rule); padding-top: 13px; }
+.tier { flex: 1; padding-right: 6px; }
+.tier-bar { height: 3px; background: var(--rule); }
 .tier-lbl {
-    font-family: var(--mono); font-size: 0.56rem; font-weight: 600; letter-spacing: 0.08em;
-    color: var(--dim); margin-top: 6px; text-align: center;
+    font-family: var(--mono); font-size: 0.55rem; font-weight: 600; letter-spacing: 0.1em;
+    color: var(--dim); margin-top: 7px;
 }
+.tier-cut { font-family: var(--mono); font-size: 0.52rem; color: var(--dim); opacity: .6; margin-top: 2px; }
 .tier.on .tier-lbl { color: var(--text); }
 
-/* -------------------------------------------------------------- alertas --- */
-.alert {
-    display: flex; gap: 16px; align-items: flex-start;
-    border-radius: var(--radius); padding: 22px 24px; border: 1px solid;
-}
-.alert-critical { background: rgba(255,77,94,0.07); border-color: rgba(255,77,94,0.34); animation: pulse-ring 2.6s ease-out 3; }
-.alert-warn     { background: rgba(255,176,32,0.07); border-color: rgba(255,176,32,0.34); }
-.alert-ico {
-    flex-shrink: 0; width: 38px; height: 38px; border-radius: 11px;
-    display: flex; align-items: center; justify-content: center;
-}
-.alert-critical .alert-ico { background: rgba(255,77,94,0.13); }
-.alert-warn .alert-ico { background: rgba(255,176,32,0.13); }
-.alert-title { font-size: 0.7rem; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; margin-bottom: 10px; }
-.alert-critical .alert-title { color: #FF95A0; }
-.alert-warn .alert-title { color: #FFCC70; }
-.alert-body { font-size: 0.9rem; line-height: 1.68; color: var(--muted); }
-.alert-body b { color: var(--text); font-weight: 600; }
-.alert-body p { margin: 0 0 10px; }
-.alert-body p:last-child { margin: 0; }
+/* ============================================================= alertas === */
+.alert { display: flex; gap: 16px; align-items: flex-start; padding: 20px 22px; }
+.alert-ico { flex-shrink: 0; width: 34px; height: 34px; border: 1px solid currentColor; display: flex; align-items: center; justify-content: center; }
+.alert-t { font-family: var(--mono); font-size: 0.64rem; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; margin-bottom: 9px; }
+.alert-b { font-size: 0.885rem; line-height: 1.7; color: var(--muted); }
+.alert-b b { color: var(--text); font-weight: 600; }
+.alert-b p { margin: 0 0 9px; } .alert-b p:last-child { margin: 0; }
 
-/* ------------------------------------------------------------- consenso --- */
-.consensus { display: flex; flex-direction: column; gap: 2px; }
-.sig {
-    display: flex; align-items: center; gap: 13px; padding: 13px 4px;
-    border-bottom: 1px solid rgba(148,163,184,0.07);
-}
+/* ============================================================ consenso === */
+.sig { display: flex; align-items: center; gap: 13px; padding: 11px 0; border-bottom: 1px dotted var(--rule); }
 .sig:last-child { border-bottom: none; }
-.sig-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-.sig-name { flex: 1; font-size: 0.86rem; font-weight: 500; color: var(--muted); }
-.sig-val { font-family: var(--mono); font-size: 0.78rem; font-weight: 600; }
+.sig-i { font-family: var(--mono); font-size: 0.58rem; color: var(--dim); width: 20px; flex-shrink: 0; }
+.sig-n { font-size: 0.85rem; color: var(--muted); flex-shrink: 0; }
+.sig-lead { flex: 1; height: 1px; background-image: repeating-linear-gradient(90deg, var(--rule) 0 2px, transparent 2px 5px); }
+.sig-v { font-family: var(--mono); font-size: 0.72rem; font-weight: 600; letter-spacing: 0.05em; flex-shrink: 0; }
 
-/* ------------------------------------------------------------ protocolo --- */
-.proto { border-radius: var(--radius); padding: 24px 26px; height: 100%; border: 1px solid; }
-.proto-do   { background: rgba(16,224,152,0.045); border-color: rgba(16,224,152,0.28); }
-.proto-dont { background: rgba(255,77,94,0.045); border-color: rgba(255,77,94,0.28); }
-.proto-head {
-    display: flex; align-items: center; gap: 10px;
-    font-size: 0.95rem; font-weight: 700; letter-spacing: -0.012em;
-    padding-bottom: 14px; margin-bottom: 6px; border-bottom: 1px solid var(--border);
-}
-.proto-do .proto-head { color: #63EDBD; }
-.proto-dont .proto-head { color: #FF95A0; }
+/* =========================================================== protocolo === */
+.proto { padding: 22px 24px; height: 100%; }
+.proto-do   { border-color: rgba(63,191,143,0.3); }
+.proto-dont { border-color: rgba(226,80,78,0.3); }
 .proto ul { list-style: none; margin: 0; padding: 0; }
-.proto li {
-    display: flex; gap: 11px; align-items: flex-start;
-    font-size: 0.885rem; line-height: 1.6; color: var(--muted); padding: 10px 0;
-}
-.proto li + li { border-top: 1px solid rgba(148,163,184,0.07); }
+.proto li { display: flex; gap: 12px; align-items: flex-start; font-size: 0.87rem; line-height: 1.62; color: var(--muted); padding: 10px 0; }
+.proto li + li { border-top: 1px dotted var(--rule); }
 .proto li .bl { margin-top: 2px; flex-shrink: 0; }
 
-/* -------------------------------------------------------------- ranking --- */
-.rank {
-    display: flex; align-items: center; gap: 18px;
-    padding: 14px 18px; border-radius: var(--radius-sm);
-    background: var(--surface); border: 1px solid var(--border); margin-bottom: 8px;
-    transition: border-color .2s ease, background .2s ease;
-}
-.rank:hover { border-color: var(--border-hi); background: var(--surface-2); }
-.rank.lead { border-color: rgba(59,158,255,0.34); background: rgba(59,158,255,0.055); }
-.rank-idx {
-    width: 28px; height: 28px; border-radius: 9px; flex-shrink: 0;
-    display: flex; align-items: center; justify-content: center;
-    font-family: var(--mono); font-size: 0.72rem; font-weight: 700;
-    color: var(--dim); background: rgba(148,163,184,0.09);
-}
-.rank.lead .rank-idx { background: rgba(59,158,255,0.2); color: #8AC7FF; }
-.rank-main { flex: 1; min-width: 0; }
-.rank-name { font-size: 0.92rem; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.rank-lat { font-size: 0.755rem; color: var(--dim); font-style: italic; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.rank-viz { width: 32%; flex-shrink: 0; }
-.rank-bar { height: 5px; border-radius: 999px; background: rgba(148,163,184,0.13); overflow: hidden; }
-.rank-bar > i { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--info), var(--accent-2)); }
-.rank.lead .rank-bar > i { background: linear-gradient(90deg, var(--info), var(--accent-2)); }
-.rank-pct { font-family: var(--mono); font-size: 0.76rem; font-weight: 600; color: var(--muted); text-align: right; margin-top: 7px; }
+/* ============================================================= ranking === */
+.rank { display: flex; align-items: center; gap: 14px; padding: 13px 4px; border-bottom: 1px dotted var(--rule); }
+.rank:last-child { border-bottom: none; }
+.rank-i { font-family: var(--mono); font-size: 0.66rem; color: var(--dim); flex-shrink: 0; width: 42px; }
+.rank.lead .rank-i { color: var(--ochre); }
+.rank-n { font-size: 0.9rem; font-weight: 600; color: var(--text); flex-shrink: 0; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rank.lead .rank-n { color: var(--text); }
+.rank-l { font-family: var(--serif); font-style: italic; font-size: 0.8rem; color: var(--dim); flex-shrink: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rank-lead-dots { flex: 1; height: 1px; min-width: 18px; background-image: repeating-linear-gradient(90deg, var(--rule) 0 2px, transparent 2px 5px); }
+.rank-bar { width: 90px; height: 3px; background: var(--rule); flex-shrink: 0; }
+.rank-bar > i { display: block; height: 100%; background: var(--steel); }
+.rank.lead .rank-bar > i { background: var(--ochre); }
+.rank-p { font-family: var(--mono); font-size: 0.73rem; font-weight: 600; color: var(--muted); width: 52px; text-align: right; flex-shrink: 0; }
 
-/* --------------------------------------------------------- empty state --- */
-.feat {
-    background: var(--surface); border: 1px solid var(--border);
-    border-radius: var(--radius); padding: 24px; height: 100%;
-    transition: border-color .22s ease, transform .22s ease;
-}
-.feat:hover { border-color: var(--border-hi); transform: translateY(-2px); }
-.feat-ico {
-    width: 40px; height: 40px; border-radius: 12px; margin-bottom: 16px;
-    display: flex; align-items: center; justify-content: center;
-}
-.feat-t { font-size: 0.96rem; font-weight: 700; color: var(--text); margin-bottom: 7px; letter-spacing: -0.015em; }
-.feat-d { font-size: 0.855rem; line-height: 1.6; color: var(--muted); }
+/* =========================================================== lamina img === */
+.spec { padding: 12px; }
+.spec-frame { position: relative; line-height: 0; background: #05070A; overflow: hidden; }
+.spec-frame img { width: 100%; display: block; }
+.cm { position: absolute; width: 17px; height: 17px; border: 1.5px solid var(--ochre); opacity: .8; }
+.cm.tl { top: 9px; left: 9px; border-right: none; border-bottom: none; }
+.cm.tr { top: 9px; right: 9px; border-left: none; border-bottom: none; }
+.cm.bl { bottom: 9px; left: 9px; border-right: none; border-top: none; }
+.cm.br { bottom: 9px; right: 9px; border-left: none; border-top: none; }
+.xh { position: absolute; top: 50%; left: 50%; width: 26px; height: 26px; transform: translate(-50%,-50%); opacity: .3; }
+.xh::before, .xh::after { content: ""; position: absolute; background: var(--ochre); }
+.xh::before { top: 50%; left: 0; right: 0; height: 1px; }
+.xh::after { left: 50%; top: 0; bottom: 0; width: 1px; }
+.spec-label { display: flex; justify-content: space-between; gap: 12px; padding: 11px 4px 3px; }
+.spec-label div { font-family: var(--mono); font-size: 0.6rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); }
+.spec-label div b { color: var(--muted); font-weight: 500; }
 
-.steps { display: flex; flex-direction: column; gap: 0; }
-.step { display: flex; gap: 16px; align-items: flex-start; padding: 15px 0; }
-.step + .step { border-top: 1px solid var(--border); }
-.step-n {
-    width: 26px; height: 26px; border-radius: 8px; flex-shrink: 0;
-    display: flex; align-items: center; justify-content: center;
-    font-family: var(--mono); font-size: 0.7rem; font-weight: 700;
-    background: rgba(16,224,152,0.11); color: var(--accent);
-    border: 1px solid rgba(16,224,152,0.24);
-}
-.step-t { font-size: 0.9rem; font-weight: 600; color: var(--text); }
-.step-d { font-size: 0.83rem; color: var(--muted); margin-top: 3px; line-height: 1.55; }
+/* ============================================================== fichas === */
+.feat { padding: 22px; height: 100%; }
+.feat-n { font-family: var(--mono); font-size: 0.6rem; letter-spacing: 0.2em; color: var(--ochre); margin-bottom: 14px; }
+.feat-t { font-size: 0.95rem; font-weight: 700; color: var(--text); margin: 12px 0 7px; letter-spacing: -0.012em; }
+.feat-d { font-size: 0.845rem; line-height: 1.62; color: var(--muted); }
 
-/* ---------------------------------------------------------- metadatos --- */
-.meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
-.meta-cell { background: var(--surface); padding: 14px 16px; }
-.meta-k { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase; color: var(--dim); margin-bottom: 5px; }
-.meta-v { font-family: var(--mono); font-size: 0.86rem; font-weight: 600; color: var(--text); }
+.step { display: flex; gap: 15px; align-items: flex-start; padding: 13px 0; }
+.step + .step { border-top: 1px dotted var(--rule); }
+.step-n { font-family: var(--mono); font-size: 0.66rem; font-weight: 700; color: var(--ochre); flex-shrink: 0; width: 22px; padding-top: 1px; }
+.step-t { font-size: 0.88rem; font-weight: 600; color: var(--text); }
+.step-d { font-size: 0.82rem; color: var(--muted); margin-top: 3px; line-height: 1.55; }
 
-/* --------------------------------------------------------------- nota --- */
-.note {
-    display: flex; gap: 13px; align-items: flex-start;
-    background: var(--surface); border: 1px solid var(--border);
-    border-radius: var(--radius-sm); padding: 16px 19px;
-    font-size: 0.835rem; line-height: 1.62; color: var(--dim);
-}
+/* =========================================================== registro === */
+.reg { display: grid; grid-template-columns: repeat(auto-fit, minmax(115px, 1fr)); }
+.reg-c { padding: 13px 16px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.reg-k { font-family: var(--mono); font-size: 0.56rem; letter-spacing: 0.16em; text-transform: uppercase; color: var(--dim); margin-bottom: 5px; }
+.reg-v { font-family: var(--mono); font-size: 0.82rem; font-weight: 600; color: var(--text); }
+
+/* =============================================================== nota === */
+.note { display: flex; gap: 12px; align-items: flex-start; padding: 14px 18px; font-size: 0.825rem; line-height: 1.6; color: var(--dim); }
 .note b { color: var(--muted); font-weight: 600; }
 
-/* ------------------------------------------------- widgets de streamlit --- */
+/* ================================================ widgets de streamlit === */
 [data-testid="stFileUploader"] section {
-    background: var(--surface); border: 1.5px dashed rgba(148,163,184,0.22);
-    border-radius: var(--radius); padding: 26px; transition: all .22s ease;
+    background: var(--surface); border: 1px dashed var(--line);
+    border-radius: var(--radius); padding: 26px; transition: all .2s ease;
 }
-[data-testid="stFileUploader"] section:hover { border-color: rgba(16,224,152,0.48); background: var(--surface-2); }
+[data-testid="stFileUploader"] section:hover { border-color: var(--ochre); background: var(--surface-2); }
 [data-testid="stFileUploader"] label, [data-testid="stFileUploader"] small,
 [data-testid="stFileUploader"] span { color: var(--muted) !important; }
 [data-testid="stFileUploader"] button {
-    background: rgba(16,224,152,0.1) !important; border: 1px solid rgba(16,224,152,0.32) !important;
-    color: var(--accent) !important; font-weight: 600 !important; border-radius: 9px !important;
+    background: transparent !important; border: 1px solid var(--line) !important;
+    color: var(--ochre) !important; font-family: var(--mono) !important;
+    font-size: 0.72rem !important; letter-spacing: 0.1em !important;
+    text-transform: uppercase !important; border-radius: 2px !important;
 }
-[data-testid="stFileUploader"] button:hover { background: rgba(16,224,152,0.18) !important; }
+[data-testid="stFileUploader"] button:hover { border-color: var(--ochre) !important; background: rgba(224,164,88,0.07) !important; }
 
-.stCheckbox label p, .stSlider label p { color: var(--muted) !important; font-size: 0.86rem !important; }
-[data-testid="stSliderTickBarMin"], [data-testid="stSliderTickBarMax"] { color: var(--dim) !important; font-family: var(--mono); }
-
-[data-testid="stImage"] img { border-radius: var(--radius); border: 1px solid var(--border); }
-[data-testid="stImageCaption"] {
-    color: var(--dim) !important; font-family: var(--mono);
-    font-size: 0.68rem !important; letter-spacing: 0.1em; text-align: center;
+/* Selector de sensibilidad como control segmentado. */
+div[role="radiogroup"] { gap: 0 !important; border: 1px solid var(--line); border-radius: 2px; overflow: hidden; }
+div[role="radiogroup"] > label {
+    flex: 1; margin: 0 !important; padding: 9px 6px !important;
+    justify-content: center; border-right: 1px solid var(--line);
+    transition: background .18s ease;
 }
+div[role="radiogroup"] > label:last-child { border-right: none; }
+div[role="radiogroup"] > label:hover { background: rgba(224,164,88,0.06); }
+div[role="radiogroup"] > label > div:first-child { display: none !important; }
+div[role="radiogroup"] > label p {
+    font-family: var(--mono) !important; font-size: 0.68rem !important;
+    letter-spacing: 0.11em !important; text-transform: uppercase !important;
+    color: var(--dim) !important; text-align: center;
+}
+div[role="radiogroup"] > label:has(input:checked) { background: rgba(224,164,88,0.11); }
+div[role="radiogroup"] > label:has(input:checked) p { color: var(--ochre) !important; font-weight: 700 !important; }
 
-.stTabs [data-baseweb="tab-list"] { gap: 4px; background: transparent; border-bottom: 1px solid var(--border); }
+.stCheckbox label p { color: var(--muted) !important; font-size: 0.84rem !important; }
+
+[data-testid="stImage"] img { border: 1px solid var(--line); }
+[data-testid="stImageCaption"] { color: var(--dim) !important; font-family: var(--mono); font-size: 0.62rem !important; letter-spacing: 0.16em; text-align: center; }
+
+.stTabs [data-baseweb="tab-list"] { gap: 0; background: transparent; border-bottom: 1px solid var(--line); }
 .stTabs [data-baseweb="tab"] {
-    background: transparent; border-radius: 10px 10px 0 0; padding: 11px 20px;
-    font-size: 0.875rem; font-weight: 600; color: var(--dim);
+    background: transparent; border-radius: 0; padding: 11px 20px;
+    font-family: var(--mono); font-size: 0.7rem; font-weight: 600;
+    letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim);
 }
 .stTabs [data-baseweb="tab"]:hover { color: var(--muted); }
-.stTabs [aria-selected="true"] { color: var(--accent) !important; background: rgba(16,224,152,0.07) !important; }
-.stTabs [data-baseweb="tab-highlight"] { background-color: var(--accent) !important; }
+.stTabs [aria-selected="true"] { color: var(--ochre) !important; }
+.stTabs [data-baseweb="tab-highlight"] { background-color: var(--ochre) !important; height: 2px; }
 
 [data-testid="stStatusWidget"], [data-testid="stExpander"] details,
 [data-testid="stVerticalBlockBorderWrapper"] {
-    background: var(--surface) !important; border: 1px solid var(--border) !important;
+    background: var(--surface) !important; border: 1px solid var(--line) !important;
     border-radius: var(--radius) !important;
 }
 [data-testid="stStatusWidget"] p, [data-testid="stExpander"] summary p,
 [data-testid="stExpander"] [data-testid="stMarkdownContainer"] p {
-    color: var(--muted) !important; font-size: 0.86rem !important;
+    color: var(--muted) !important; font-family: var(--mono) !important; font-size: 0.76rem !important;
 }
 
-[data-testid="stAlert"] {
-    background: rgba(255,77,94,0.07) !important; border: 1px solid rgba(255,77,94,0.3) !important;
-    border-radius: var(--radius) !important;
-}
-[data-testid="stAlert"] p { color: #FFB3BB !important; }
-[data-testid="stSpinner"] p { color: var(--muted) !important; }
+[data-testid="stAlert"] { background: rgba(226,80,78,0.07) !important; border: 1px solid rgba(226,80,78,0.3) !important; border-radius: var(--radius) !important; }
+[data-testid="stAlert"] p { color: var(--vermilion) !important; }
+[data-testid="stSpinner"] p { color: var(--muted) !important; font-family: var(--mono) !important; font-size: 0.76rem !important; }
 
 [data-testid="stDownloadButton"] button {
-    background: rgba(148,163,184,0.07) !important; border: 1px solid var(--border-hi) !important;
-    color: var(--muted) !important; border-radius: 10px !important;
-    font-size: 0.83rem !important; font-weight: 600 !important;
+    background: transparent !important; border: 1px solid var(--line) !important;
+    color: var(--muted) !important; border-radius: 2px !important;
+    font-family: var(--mono) !important; font-size: 0.7rem !important;
+    letter-spacing: 0.13em !important; text-transform: uppercase !important;
 }
-[data-testid="stDownloadButton"] button:hover {
-    border-color: rgba(16,224,152,0.45) !important; color: var(--accent) !important;
-    background: rgba(16,224,152,0.07) !important;
-}
+[data-testid="stDownloadButton"] button:hover { border-color: var(--ochre) !important; color: var(--ochre) !important; background: rgba(224,164,88,0.07) !important; }
 
-[data-baseweb="tooltip"], [data-baseweb="popover"] > div {
-    background: var(--surface-3) !important; color: var(--text) !important; border-radius: 9px !important;
-}
-hr { border-color: var(--border) !important; }
-[data-testid="stCaptionContainer"] p { color: var(--dim) !important; font-size: 0.83rem !important; }
+[data-baseweb="tooltip"], [data-baseweb="popover"] > div { background: var(--surface-3) !important; color: var(--text) !important; border-radius: 2px !important; }
+hr { border-color: var(--line) !important; }
+[data-testid="stCaptionContainer"] p { color: var(--dim) !important; font-size: 0.8rem !important; }
 
-::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar { width: 11px; height: 11px; }
 ::-webkit-scrollbar-track { background: var(--bg); }
-::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.2); border-radius: 999px; border: 2px solid var(--bg); }
-::-webkit-scrollbar-thumb:hover { background: rgba(148,163,184,0.34); }
-::selection { background: rgba(16,224,152,0.3); color: #fff; }
+::-webkit-scrollbar-thumb { background: rgba(224,164,88,0.2); border: 3px solid var(--bg); }
+::-webkit-scrollbar-thumb:hover { background: rgba(224,164,88,0.36); }
+::selection { background: rgba(224,164,88,0.3); color: #fff; }
 
-@media (max-width: 860px) {
-    .block-container { padding: 1.4rem 1rem 3rem; }
-    .hero { padding: 26px 22px; }
-    .donut-wrap { flex-direction: column; align-items: flex-start; gap: 16px; }
-    .rank-viz { width: 26%; }
+@media (max-width: 900px) {
+    .block-container { padding: 1.2rem 0.9rem 3rem; }
+    .hero-body { flex-direction: column; gap: 20px; padding: 22px; }
+    .hero-file { width: 100%; border-left: none; border-top: 1px solid var(--line); padding: 14px 0 0; }
+    .dial-wrap { flex-direction: column; align-items: flex-start; gap: 16px; }
+    .rank-l, .rank-bar { display: none; }
+    .rank-n { max-width: 70%; }
 }
 """
+
 
 def minify_css(css: str) -> str:
     """Comprime el CSS a una sola línea.
 
-    Es imprescindible: el parser de markdown de Streamlit cierra un bloque HTML
-    en cuanto encuentra una línea en blanco, de modo que un <style> con saltos
-    de línea acaba imprimiéndose como texto plano en la página.
+    Imprescindible: el parser de markdown de Streamlit cierra un bloque HTML en
+    cuanto encuentra una línea en blanco, de modo que un <style> con saltos de
+    línea acaba imprimiéndose como texto plano en la página.
     """
-    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)          # comentarios
-    css = re.sub(r"\s+", " ", css)                            # saltos y sangrías
-    css = re.sub(r"\s*([{}:;,>])\s*", r"\1", css)             # espacio alrededor de símbolos
-    css = re.sub(r";}", "}", css)                             # último punto y coma
+    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    css = re.sub(r"\s+", " ", css)
+    css = re.sub(r"\s*([{}:;,>])\s*", r"\1", css)
+    css = re.sub(r";}", "}", css)
     return css.strip()
 
 
-_FONTS = (
+st.markdown(
     '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
     '<link href="https://fonts.googleapis.com/css2?'
-    "family=Inter:wght@400;500;600;700;800&"
-    'family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">'
-)
-
-st.markdown(
-    _FONTS + f"<style>{minify_css(_ROOT_VARS + _CSS)}</style>",
+    "family=Inter:wght@400;500;600;700&"
+    "family=JetBrains+Mono:wght@400;500;600;700&"
+    'family=Spectral:ital,wght@0,600;1,400;1,500&display=swap" rel="stylesheet">'
+    f"<style>{minify_css(_ROOT_VARS + _CSS)}</style>",
     unsafe_allow_html=True,
 )
 
@@ -580,23 +628,19 @@ _ICONS = {
         '<path d="M9 19v3"/><path d="M15 19v3"/><path d="M2 9h3"/><path d="M2 15h3"/>'
         '<path d="M19 9h3"/><path d="M19 15h3"/>'
     ),
-    "spark": (
-        '<path d="M12 2v6"/><path d="m5 5 4 4"/><path d="M2 12h6"/><path d="m5 19 4-4"/>'
-        '<path d="M12 22v-6"/><path d="m19 19-4-4"/><path d="M22 12h-6"/><path d="m19 5-4 4"/>'
-    ),
     "scan": (
         '<path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/>'
         '<path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M3 12h18"/>'
     ),
-    "sliders": '<path d="M4 21v-7"/><path d="M4 10V3"/><path d="M12 21v-9"/><path d="M12 8V3"/><path d="M20 21v-5"/><path d="M20 12V3"/><path d="M1 14h6"/><path d="M9 8h6"/><path d="M17 16h6"/>',
+    "compass": '<circle cx="12" cy="12" r="10"/><path d="m16.2 7.8-2.9 6.4-6.4 2.9 2.9-6.4 6.4-2.9Z"/>',
+    "book": '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/>',
+    "ruler": '<path d="M3 15 15 3l6 6L9 21l-6-6Z"/><path d="m7 11 2 2"/><path d="m11 7 2 2"/><path d="m5 13 2 2"/>',
     "clock": '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
-    "file": '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/>',
-    "link": '<path d="M9 17H7A5 5 0 0 1 7 7h2"/><path d="M15 7h2a5 5 0 0 1 0 10h-2"/><path d="M8 12h8"/>',
+    "download": '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/>',
 }
 
 
-def ico(name: str, size: int = 18, color: str = "currentColor", w: float = 1.8) -> str:
-    """SVG inline listo para inyectar en HTML."""
+def ico(name: str, size: int = 16, color: str = "currentColor", w: float = 1.7) -> str:
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{size}" height="{size}" '
         f'viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="{w}" '
@@ -610,41 +654,50 @@ def ico(name: str, size: int = 18, color: str = "currentColor", w: float = 1.8) 
 # =============================================================================
 
 def html(markup: str) -> None:
-    """Inyecta HTML en una sola línea.
-
-    Streamlit pasa el markup por un renderizador de markdown: cualquier línea
-    en blanco rompe el bloque HTML y el resto se muestra como texto. Colapsar
-    los saltos de línea evita ese fallo en todos los componentes.
-    """
+    """Inyecta HTML colapsado en una línea (ver nota en minify_css)."""
     st.markdown(re.sub(r"\s*\n\s*", " ", markup).strip(), unsafe_allow_html=True)
 
 
-def section(icon_name: str, title: str, num: str = "", color: str = THEME["accent"]) -> None:
-    tag = f'<span class="num">{num}</span>' if num else ""
+def sec(num: str, title: str, tag: str = "") -> None:
     html(
-        f'<div class="section">{ico(icon_name, 17, color)}'
-        f'<span class="ttl">{title}</span>{tag}<span class="rule"></span></div>'
+        f'<div class="sec"><span class="sec-n">§{num}</span>'
+        f'<span class="sec-t">{title}</span><span class="sec-rule"></span>'
+        f'<span class="sec-tag">{tag}</span></div>'
     )
 
 
-def donut(prob: float, color: str, radius: int = 54, stroke: int = 9) -> str:
-    """Anillo de progreso SVG animado."""
-    circ = 2 * 3.14159265 * radius
-    offset = circ * (1 - min(max(prob, 0.0), 1.0))
-    size = (radius + stroke) * 2
-    c = radius + stroke
+def dial(prob: float, color: str, radius: int = 52, stroke: int = 7) -> str:
+    """Esfera graduada: anillo de progreso con corona de marcas."""
+    p = min(max(prob, 0.0), 1.0)
+    circ = 2 * math.pi * radius
+    pad = stroke + 12
+    size = (radius + pad) * 2
+    c = radius + pad
+
+    ticks = []
+    for i in range(60):
+        ang = math.radians(i * 6 - 90)
+        major = i % 5 == 0
+        r1 = radius + stroke / 2 + 4
+        r2 = r1 + (6 if major else 3)
+        ticks.append(
+            f'<line x1="{c + r1 * math.cos(ang):.2f}" y1="{c + r1 * math.sin(ang):.2f}" '
+            f'x2="{c + r2 * math.cos(ang):.2f}" y2="{c + r2 * math.sin(ang):.2f}" '
+            f'stroke="{THEME["ochre"]}" stroke-width="{1.3 if major else 0.8}" '
+            f'opacity="{0.55 if major else 0.25}"/>'
+        )
+
     return (
-        f'<div class="donut" style="width:{size}px;height:{size}px">'
-        f'<svg width="{size}" height="{size}">'
-        f'<circle cx="{c}" cy="{c}" r="{radius}" fill="none" '
-        f'stroke="rgba(148,163,184,0.13)" stroke-width="{stroke}"/>'
+        f'<div class="dial" style="width:{size}px;height:{size}px">'
+        f'<svg width="{size}" height="{size}">{"".join(ticks)}'
+        f'<g transform="rotate(-90 {c} {c})">'
+        f'<circle cx="{c}" cy="{c}" r="{radius}" fill="none" stroke="{THEME["rule"]}" stroke-width="{stroke}"/>'
         f'<circle class="arc" cx="{c}" cy="{c}" r="{radius}" fill="none" stroke="{color}" '
-        f'stroke-width="{stroke}" stroke-linecap="round" '
-        f'stroke-dasharray="{circ:.2f}" stroke-dashoffset="{offset:.2f}" '
-        f'style="--circ:{circ:.2f}px"/></svg>'
-        f'<div class="donut-center">'
-        f'<div class="donut-pct" style="color:{color}">{prob * 100:.0f}<span style="font-size:.8rem">%</span></div>'
-        f'<div class="donut-cap">ÍNDICE</div></div></div>'
+        f'stroke-width="{stroke}" stroke-linecap="butt" stroke-dasharray="{circ:.2f}" '
+        f'stroke-dashoffset="{circ * (1 - p):.2f}" style="--circ:{circ:.2f}px"/></g></svg>'
+        f'<div class="dial-c"><div class="dial-n" style="color:{color}">{p * 100:.0f}'
+        f'<span style="font-size:.72rem">%</span></div>'
+        f'<div class="dial-u">ÍNDICE</div></div></div>'
     )
 
 
@@ -653,113 +706,112 @@ def tier_scale(prob: float, threshold: float) -> str:
     cells = []
     for (label, color, _), cut in zip(_TIER_META, tier_cuts(threshold)):
         on = label == active
-        bar = color if on else "rgba(148,163,184,0.14)"
         cells.append(
-            f'<div class="tier {"on" if on else ""}" style="color:{color}" '
-            f'title="a partir del {cut * 100:.0f}%">'
-            f'<div class="tier-bar" style="background:{bar}"></div>'
-            f'<div class="tier-lbl">{label}</div></div>'
+            f'<div class="tier {"on" if on else ""}">'
+            f'<div class="tier-bar" style="background:{color if on else "var(--rule)"}"></div>'
+            f'<div class="tier-lbl" style="{f"color:{color}" if on else ""}">{label}</div>'
+            f'<div class="tier-cut">≥{cut * 100:.0f}%</div></div>'
         )
     return f'<div class="tiers">{"".join(cells)}</div>'
 
 
 def alert_box(kind: str, title: str, paragraphs: list[str]) -> None:
     crit = kind == "critical"
-    color = THEME["danger"] if crit else THEME["warning"]
+    color = THEME["vermilion"] if crit else THEME["amber"]
     body = "".join(f"<p>{p}</p>" for p in paragraphs)
     html(
-        f'<div class="alert alert-{"critical" if crit else "warn"} rise">'
-        f'<div class="alert-ico">{ico("shield_alert" if crit else "alert", 20, color)}</div>'
-        f'<div><div class="alert-title">{title}</div>'
-        f'<div class="alert-body">{body}</div></div></div>'
+        f'<div class="plate alert rise" style="border-color:{color}55;'
+        f'background:linear-gradient(160deg,{color}12,var(--surface) 60%)">'
+        f'<div class="alert-ico" style="color:{color}">{ico("shield_alert" if crit else "alert", 17, color)}</div>'
+        f'<div><div class="alert-t" style="color:{color}">{title}</div>'
+        f'<div class="alert-b">{body}</div></div></div>'
     )
 
 
-def protocol_box(kind: str, title: str, items: list[str]) -> None:
+def protocol_box(kind: str, idx: str, title: str, items: list[str]) -> None:
     is_do = kind == "do"
-    color = THEME["accent"] if is_do else THEME["danger"]
-    bullet = ico("check" if is_do else "cross", 14, color, 2.5)
+    color = THEME["jade"] if is_do else THEME["vermilion"]
+    bullet = ico("check" if is_do else "cross", 13, color, 2.4)
     lis = "".join(f'<li><span class="bl">{bullet}</span><span>{i}</span></li>' for i in items)
     html(
-        f'<div class="proto proto-{"do" if is_do else "dont"} rise rise-2">'
-        f'<div class="proto-head">{ico("shield" if is_do else "alert", 17, color)}<span>{title}</span></div>'
+        f'<div class="plate proto proto-{"do" if is_do else "dont"} rise rise-2">'
+        f'<div class="card-head"><span class="card-idx" style="color:{color};border-color:{color}55">{idx}</span>'
+        f'<span class="card-t" style="color:{color}">{title}</span></div>'
         f"<ul>{lis}</ul></div>"
     )
 
 
-def signal_row(name: str, value: str, color: str) -> str:
+def signal(i: int, name: str, value: str, color: str) -> str:
     return (
-        f'<div class="sig"><span class="sig-dot" style="background:{color};'
-        f'box-shadow:0 0 9px {color}"></span>'
-        f'<span class="sig-name">{name}</span>'
-        f'<span class="sig-val" style="color:{color}">{value}</span></div>'
+        f'<div class="sig"><span class="sig-i">{i:02d}</span>'
+        f'<span class="sig-n">{name}</span><span class="sig-lead"></span>'
+        f'<span class="sig-v" style="color:{color}">{value}</span></div>'
     )
 
 
-def meta_grid(pairs: list[tuple[str, str]]) -> str:
-    cells = "".join(
-        f'<div class="meta-cell"><div class="meta-k">{k}</div><div class="meta-v">{v}</div></div>'
-        for k, v in pairs
-    )
-    return f'<div class="meta-grid rise rise-1">{cells}</div>'
-
-
-def to_b64(img) -> str:
-    """PIL.Image o ndarray → data URI PNG."""
+def to_b64(img, max_w: int = 1200) -> str:
+    """PIL.Image o ndarray → data URI PNG, reescalado para no inflar el HTML."""
     if not isinstance(img, Image.Image):
         arr = np.asarray(img)
         if arr.dtype != np.uint8:
             arr = np.clip(arr * (255 if arr.max() <= 1.0 else 1), 0, 255).astype(np.uint8)
         img = Image.fromarray(arr)
+    img = img.convert("RGB")
+    if img.width > max_w:
+        img = img.resize((max_w, round(img.height * max_w / img.width)), Image.LANCZOS)
     buf = io.BytesIO()
-    img.convert("RGB").save(buf, format="PNG", optimize=True)
-    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+    img.save(buf, format="JPEG", quality=88, optimize=True)
+    return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
 
 
-def comparison_slider(before, after, height: int = 430) -> None:
+def specimen_plate(img: Image.Image, left: str, right: str) -> str:
+    """Lámina de espécimen: marcas de encuadre, retícula central y cartela."""
+    return (
+        f'<div class="plate spec rise">'
+        f'<div class="spec-frame"><img src="{to_b64(img)}">'
+        f'<i class="cm tl"></i><i class="cm tr"></i><i class="cm bl"></i><i class="cm br"></i>'
+        f'<i class="xh"></i></div>'
+        f'<div class="spec-label"><div>{left}</div><div>{right}</div></div></div>'
+    )
+
+
+def comparison_slider(before, after, height: int = 440) -> None:
     """Comparador interactivo original / Grad-CAM con divisor arrastrable."""
     a, b = to_b64(before), to_b64(after)
     components.html(
         f"""
         <style>
-          .cmp {{ position:relative; width:100%; height:{height}px; border-radius:16px;
-                  overflow:hidden; border:1px solid rgba(148,163,184,0.16);
-                  background:#10161F; user-select:none; touch-action:none;
-                  font-family:'JetBrains Mono',monospace; }}
-          .cmp img {{ position:absolute; inset:0; width:100%; height:100%;
-                      object-fit:contain; pointer-events:none; }}
+          .cmp {{ position:relative; width:100%; height:{height}px; overflow:hidden;
+                  border:1px solid rgba(224,164,88,0.17); background:#05070A;
+                  user-select:none; touch-action:none; font-family:'JetBrains Mono',monospace; }}
+          .cmp img {{ position:absolute; inset:0; width:100%; height:100%; object-fit:contain; pointer-events:none; }}
           .cmp .top {{ clip-path: inset(0 0 0 var(--x, 50%)); }}
-          .cmp .bar {{ position:absolute; top:0; bottom:0; width:2px; left:var(--x,50%);
-                       background:rgba(232,239,249,.9); box-shadow:0 0 14px rgba(16,224,152,.55);
-                       cursor:ew-resize; }}
-          .cmp .knob {{ position:absolute; top:50%; left:50%; width:38px; height:38px;
-                        transform:translate(-50%,-50%); border-radius:50%;
-                        background:rgba(16,22,31,.92); border:2px solid rgba(232,239,249,.9);
-                        display:flex; align-items:center; justify-content:center; }}
-          .cmp .tag {{ position:absolute; bottom:12px; font-size:9px; letter-spacing:.14em;
-                       font-weight:700; padding:5px 10px; border-radius:999px;
-                       background:rgba(8,11,17,.72); border:1px solid rgba(148,163,184,.2); }}
-          .cmp .l {{ left:12px; color:#93A1B5; }}
-          .cmp .r {{ right:12px; color:#10E098; }}
+          .cmp .bar {{ position:absolute; top:0; bottom:0; width:1px; left:var(--x,50%);
+                       background:#E0A458; box-shadow:0 0 12px rgba(224,164,88,.6); cursor:ew-resize; }}
+          .cmp .knob {{ position:absolute; top:50%; left:50%; width:34px; height:34px;
+                        transform:translate(-50%,-50%); border:1.5px solid #E0A458;
+                        background:rgba(11,14,18,.9); display:flex; align-items:center; justify-content:center; }}
+          .cmp .cm {{ position:absolute; width:15px; height:15px; border:1.5px solid #E0A458; opacity:.75; }}
+          .cmp .tl {{ top:9px; left:9px; border-right:none; border-bottom:none; }}
+          .cmp .br {{ bottom:9px; right:9px; border-left:none; border-top:none; }}
+          .cmp .tag {{ position:absolute; bottom:11px; font-size:9px; letter-spacing:.18em; font-weight:600;
+                       padding:4px 9px; background:rgba(11,14,18,.8); border:1px solid rgba(224,164,88,.25); }}
+          .cmp .l {{ left:32px; color:#9C978A; }}
+          .cmp .r {{ right:32px; color:#E0A458; }}
         </style>
         <div class="cmp" id="cmp">
-          <img src="{a}">
-          <img class="top" src="{b}">
-          <div class="bar" id="bar">
-            <div class="knob">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#E8EFF9"
-                   stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
-                <path d="m9 6-6 6 6 6"/><path d="m15 6 6 6-6 6"/>
-              </svg>
-            </div>
-          </div>
-          <div class="tag l">ORIGINAL</div>
-          <div class="tag r">GRAD-CAM</div>
+          <img src="{a}"><img class="top" src="{b}">
+          <div class="bar" id="bar"><div class="knob">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#E0A458"
+                 stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="m9 6-6 6 6 6"/><path d="m15 6 6 6-6 6"/></svg>
+          </div></div>
+          <i class="cm tl"></i><i class="cm br"></i>
+          <div class="tag l">ORIGINAL</div><div class="tag r">GRAD-CAM</div>
         </div>
         <script>
           (function() {{
-            const box = document.getElementById('cmp');
-            let dragging = false;
+            const box = document.getElementById('cmp'); let drag = false;
             const move = (e) => {{
               const r = box.getBoundingClientRect();
               const cx = (e.touches ? e.touches[0].clientX : e.clientX) - r.left;
@@ -767,17 +819,17 @@ def comparison_slider(before, after, height: int = 430) -> None:
               box.style.setProperty('--x', pct + '%');
               document.getElementById('bar').style.left = pct + '%';
             }};
-            const down = (e) => {{ dragging = true; move(e); }};
+            const down = (e) => {{ drag = true; move(e); }};
             box.addEventListener('mousedown', down);
             box.addEventListener('touchstart', down, {{passive:true}});
-            window.addEventListener('mouseup', () => dragging = false);
-            window.addEventListener('touchend', () => dragging = false);
-            window.addEventListener('mousemove', (e) => dragging && move(e));
-            window.addEventListener('touchmove', (e) => dragging && move(e), {{passive:true}});
+            window.addEventListener('mouseup', () => drag = false);
+            window.addEventListener('touchend', () => drag = false);
+            window.addEventListener('mousemove', (e) => drag && move(e));
+            window.addEventListener('touchmove', (e) => drag && move(e), {{passive:true}});
           }})();
         </script>
         """,
-        height=height + 14,
+        height=height + 12,
     )
 
 
@@ -807,22 +859,58 @@ def get_species_model():
 # =============================================================================
 
 st.session_state.setdefault("runs", 0)
+now = datetime.now()
 
 html(
     f"""
-    <div class="hero rise">
-        <div class="eyebrow">{ico("spark", 12, THEME["accent"], 2.2)} Computer Vision · Herpetología</div>
-        <h1 class="hero-title">Snakely <em>AI</em></h1>
-        <p class="hero-sub">
-            Identificación taxonómica y evaluación de riesgo toxicológico en ofidios,
-            con validación cruzada entre modelos independientes y trazabilidad visual
-            de la inferencia.
-        </p>
-        <div class="hero-meta">
-            <span class="chip">{ico("cpu", 14, THEME["accent"])} Doble arquitectura <b>CNN</b></span>
-            <span class="chip">{ico("shield", 14, THEME["info"])} Validación cruzada de <b>seguridad</b></span>
-            <span class="chip">{ico("eye", 14, THEME["violet"])} Interpretabilidad <b>Grad-CAM</b></span>
-            <span class="chip">{ico("kit", 14, THEME["warning"])} Protocolo de <b>primeros auxilios</b></span>
+    <div class="plate hero rise">
+        <div class="ruler"></div>
+        <div class="hero-body">
+            <div class="hero-left">
+                <div class="hero-kicker"><span class="dot"></span>
+                    <span class="tag">Ficha de campo digital · Herpetología</span></div>
+                <h1 class="hero-title">Snakely <i>AI</i></h1>
+                <p class="hero-latin">Serpentes · identificación asistida por visión artificial</p>
+                <p class="hero-sub">
+                    Clasificación taxonómica y evaluación de riesgo toxicológico a partir de una
+                    fotografía, con validación cruzada entre dos modelos independientes y
+                    trazabilidad visual de la inferencia.
+                </p>
+            </div>
+            <div class="hero-file">
+                <div class="row"><span class="k">Expediente</span><span class="v">SNK·{now:%Y}</span></div>
+                <div class="row"><span class="k">Fecha</span><span class="v">{now:%d.%m.%Y}</span></div>
+                <div class="row"><span class="k">Sesión</span><span class="v">{now:%H:%M}</span></div>
+                <div class="row"><span class="k">Registros</span><span class="v">{st.session_state["runs"]:03d}</span></div>
+            </div>
+        </div>
+        <div class="hero-caps">
+            <div class="hero-cap">{ico("dna", 15, THEME["steel"])}<span>Clasificador <b>taxonómico</b></span></div>
+            <div class="hero-cap">{ico("shield_alert", 15, THEME["vermilion"])}<span>Detector de <b>toxicidad</b></span></div>
+            <div class="hero-cap">{ico("scan", 15, THEME["jade"])}<span>Validación <b>cruzada</b></span></div>
+            <div class="hero-cap">{ico("eye", 15, THEME["plum"])}<span>Mapa de <b>atención</b></span></div>
+        </div>
+    </div>
+    """
+)
+
+# --- AVISO: primero de todo, antes de cualquier resultado ---------------------
+
+html(
+    f"""
+    <div class="advisory rise rise-1">
+        <div class="advisory-stripe"></div>
+        <div class="advisory-body">
+            <div class="advisory-ico">{ico("alert", 19, THEME["vermilion"])}</div>
+            <div>
+                <div class="advisory-t">Léelo antes de usar la herramienta</div>
+                <div class="advisory-d">
+                    Los resultados son <b>estimaciones probabilísticas</b> de modelos de aprendizaje
+                    profundo y pueden equivocarse. No sustituyen el criterio de un herpetólogo ni la
+                    atención médica profesional. <b>Ante una mordedura, acude de inmediato al centro
+                    de salud más cercano</b> y no esperes a confirmar la especie.
+                </div>
+            </div>
         </div>
     </div>
     """
@@ -832,9 +920,9 @@ html(
 #  7 · ENTRADA Y PARÁMETROS
 # =============================================================================
 
-section("upload", "Muestra de análisis", "01")
+sec("01", "Muestra de análisis", "Entrada")
 
-col_up, col_cfg = st.columns([2.3, 1], gap="large")
+col_up, col_cfg = st.columns([2.1, 1.1], gap="large")
 
 with col_up:
     image_file = st.file_uploader(
@@ -845,62 +933,76 @@ with col_up:
 with col_cfg:
     with st.container(border=True):
         html(
-            f'<div class="card-label" style="margin-bottom:10px">'
-            f'{ico("sliders", 13, THEME["info"])} Parámetros de inferencia</div>'
+            f'<div class="card-head" style="margin-bottom:12px">'
+            f'<span class="card-idx">{ico("ruler", 11, THEME["ochre"])}</span>'
+            f'<span class="card-t">Sensibilidad del aviso</span></div>'
+            f'<div style="font-size:.82rem;color:var(--muted);line-height:1.55;margin-bottom:10px">'
+            f"Define cuántos indicios hacen falta para que el sistema marque un ejemplar "
+            f"como peligroso.</div>"
         )
-        venom_threshold = st.slider(
-            "Umbral de decisión de toxicidad",
-            min_value=0.30,
-            max_value=0.70,
-            value=0.50,
-            step=0.05,
-            help="Un umbral más bajo hace al sistema más conservador: marcará como "
-            "peligrosos más ejemplares, a costa de más falsos positivos.",
+        mode = st.radio(
+            "Modo de sensibilidad",
+            list(SENSITIVITY),
+            index=1,
+            horizontal=True,
+            label_visibility="collapsed",
+        )
+        cfg = SENSITIVITY[mode]
+        html(
+            f'<div style="margin-top:10px;padding-top:11px;border-top:1px dotted var(--rule);'
+            f'font-size:.82rem;line-height:1.6;color:var(--muted)">'
+            f'<b style="color:{cfg["color"]};font-family:var(--mono);font-size:.68rem;'
+            f'letter-spacing:.14em">{mode.upper()}</b> · {cfg["short"]}</div>'
         )
         show_gradcam = st.checkbox("Generar mapa de atención (Grad-CAM)", value=True)
+
+venom_threshold = cfg["threshold"]
 
 # ------------------------------- estado vacío --------------------------------
 
 if image_file is None:
-    section("layers", "Cómo funciona", "02", THEME["info"])
+    sec("02", "Cómo funciona", "Manual")
 
-    f1, f2, f3 = st.columns(3, gap="large")
+    cols = st.columns(3, gap="large")
     features = [
-        (f1, "dna", THEME["info"], "Clasificador taxonómico",
+        ("dna", THEME["steel"], "Clasificador taxonómico",
          "Una red convolucional identifica la especie y devuelve las cinco candidatas "
          "más probables con su nivel de confianza."),
-        (f2, "shield_alert", THEME["danger"], "Detector de toxicidad",
+        ("shield_alert", THEME["vermilion"], "Detector de toxicidad",
          "Un segundo modelo, independiente del anterior, estima la probabilidad de que "
          "el ejemplar presente rasgos de especie venenosa."),
-        (f3, "scan", THEME["accent"], "Validación cruzada",
-         "Ambos dictámenes se contrastan. Ante cualquier discrepancia, el sistema "
-         "resuelve siempre a favor de la hipótesis más segura."),
+        ("scan", THEME["jade"], "Validación cruzada",
+         "Ambos dictámenes se contrastan. Ante cualquier discrepancia, el sistema resuelve "
+         "siempre a favor de la hipótesis más segura."),
     ]
-    for col, name, color, title, desc in features:
+    for i, (col, (name, color, title, desc)) in enumerate(zip(cols, features), 1):
         with col:
             html(
-                f'<div class="feat rise rise-1">'
-                f'<div class="feat-ico" style="background:{color}1F">{ico(name, 20, color)}</div>'
+                f'<div class="plate feat rise rise-1">'
+                f'<div class="feat-n">MÓDULO {i:02d}</div>{ico(name, 22, color, 1.5)}'
                 f'<div class="feat-t">{title}</div><div class="feat-d">{desc}</div></div>'
             )
 
     st.write("")
-    c_steps, c_tips = st.columns([1.15, 1], gap="large")
+    c_steps, c_tips = st.columns([1.1, 1], gap="large")
 
     with c_steps:
         steps = [
             ("Sube la fotografía", "Formatos JPG, PNG o JPEG. Se corrige automáticamente la orientación EXIF."),
-            ("Ajusta el umbral", "Baja el umbral si prefieres un criterio más conservador."),
+            ("Elige la sensibilidad", "«Precavido» avisa antes; «Estricto» solo ante indicios claros."),
             ("Revisa el dictamen", "Índice de toxicidad, especie predominante y consenso entre modelos."),
             ("Consulta el protocolo", "Acciones recomendadas y prohibidas ante una mordedura."),
         ]
         rows = "".join(
-            f'<div class="step"><div class="step-n">{i}</div>'
+            f'<div class="step"><div class="step-n">{i:02d}</div>'
             f'<div><div class="step-t">{t}</div><div class="step-d">{d}</div></div></div>'
             for i, (t, d) in enumerate(steps, 1)
         )
-        html(f'<div class="card rise rise-2"><div class="card-label">{ico("activity", 13, THEME["accent"])} '
-             f'Flujo de trabajo</div><div class="steps">{rows}</div></div>')
+        html(
+            f'<div class="plate card rise rise-2"><div class="card-head">'
+            f'<span class="card-idx">{ico("compass", 11, THEME["ochre"])}</span>'
+            f'<span class="card-t">Procedimiento</span></div>{rows}</div>'
+        )
 
     with c_tips:
         tips = [
@@ -910,20 +1012,17 @@ if image_file is None:
             "Una sola serpiente por imagen mejora la precisión.",
         ]
         lis = "".join(
-            f'<li><span class="bl">{ico("check", 14, THEME["accent"], 2.5)}</span><span>{t}</span></li>'
+            f'<li><span class="bl">{ico("check", 13, THEME["jade"], 2.4)}</span><span>{t}</span></li>'
             for t in tips
         )
-        html(f'<div class="proto proto-do rise rise-3">'
-             f'<div class="proto-head">{ico("eye", 17, THEME["accent"])}'
-             f'<span>Cómo obtener mejores resultados</span></div><ul>{lis}</ul></div>')
+        html(
+            f'<div class="plate proto proto-do rise rise-3"><div class="card-head">'
+            f'<span class="card-idx" style="color:{THEME["jade"]};border-color:{THEME["jade"]}55">'
+            f'{ico("eye", 11, THEME["jade"])}</span>'
+            f'<span class="card-t" style="color:{THEME["jade"]}">Notas de campo</span></div>'
+            f"<ul>{lis}</ul></div>"
+        )
 
-    st.write("")
-    html(
-        f'<div class="note rise rise-4">{ico("info", 16, THEME["info"])}'
-        f"<span><b>Uso responsable.</b> Snakely es una herramienta de apoyo a la decisión "
-        f"y no sustituye el criterio de un herpetólogo ni la atención médica profesional. "
-        f"Ante una mordedura, acude de inmediato al centro de salud más cercano.</span></div>"
-    )
     st.stop()
 
 # =============================================================================
@@ -933,10 +1032,17 @@ if image_file is None:
 raw_bytes = image_file.getvalue()
 image = ImageOps.exif_transpose(Image.open(io.BytesIO(raw_bytes)).convert("RGB"))
 image_np = np.array(image)
+w, h = image.size
 
-col_a, col_b, col_c = st.columns([1, 1.55, 1])
+col_a, col_b, col_c = st.columns([1, 1.7, 1])
 with col_b:
-    st.image(image, caption="MUESTRA CARGADA", use_container_width=True)
+    html(
+        specimen_plate(
+            image,
+            f"Espécimen · <b>{image_file.name[:26]}</b>",
+            f"<b>{w}×{h}</b> px · {len(raw_bytes) / 1024:.0f} KB",
+        )
+    )
 
 t0 = time.perf_counter()
 with st.status("Ejecutando pipeline de inferencia…", expanded=True) as status:
@@ -984,45 +1090,52 @@ final_is_venomous = safety.get("final_is_venomous", is_venomous)
 display_prob = max(venom_prob, venom_threshold + 0.01) if final_is_venomous else venom_prob
 tier_label, tier_color, tier_desc = risk_tier(display_prob, venom_threshold)
 
-# ------------------------------ metadatos ------------------------------------
+# ------------------------------ registro -------------------------------------
 
-w, h = image.size
+reg = [
+    ("Registro", f"#{st.session_state['runs']:03d}"),
+    ("Hora", f"{datetime.now():%H:%M:%S}"),
+    ("Resolución", f"{w}×{h}"),
+    ("Inferencia", f"{elapsed:.2f} s"),
+    ("Modo", mode.upper()),
+    ("Umbral", f"{venom_threshold:.2f}"),
+]
 html(
-    meta_grid(
-        [
-            ("Archivo", image_file.name[:22] + ("…" if len(image_file.name) > 22 else "")),
-            ("Resolución", f"{w}×{h} px"),
-            ("Peso", f"{len(raw_bytes) / 1024:.0f} KB"),
-            ("Inferencia", f"{elapsed:.2f} s"),
-            ("Umbral", f"{venom_threshold:.2f}"),
-            ("Análisis", f"#{st.session_state['runs']:03d}"),
-        ]
+    '<div class="plate rise rise-1" style="overflow:hidden"><div class="reg">'
+    + "".join(
+        f'<div class="reg-c"><div class="reg-k">{k}</div><div class="reg-v">{v}</div></div>'
+        for k, v in reg
     )
+    + "</div></div>"
 )
 
 # =============================================================================
 #  9 · DICTAMEN
 # =============================================================================
 
-section("activity", "Dictamen del sistema", "02", tier_color)
+sec("02", "Dictamen del sistema", "Resultado")
 
 verdict = "POTENCIALMENTE VENENOSA" if final_is_venomous else "SIN INDICIOS DE VENENO"
-card_tone = "t-danger" if final_is_venomous else "t-safe"
-badge_tone = "badge-danger" if final_is_venomous else "badge-safe"
+tone = "tone-danger" if final_is_venomous else "tone-safe"
 
-col_v, col_s = st.columns([1.05, 1], gap="large")
+col_v, col_s = st.columns([1.06, 1], gap="large")
 
 with col_v:
     html(
         f"""
-        <div class="card {card_tone} rise rise-1">
-            <div class="card-label">{ico("shield_alert", 13, tier_color)} Diagnóstico de peligrosidad · prioritario</div>
-            <div class="donut-wrap">
-                {donut(display_prob, tier_color)}
-                <div class="donut-side">
-                    <div class="card-value" style="font-size:1.16rem">{verdict}</div>
-                    <div class="card-sub" style="font-style:normal">{tier_desc}</div>
-                    <span class="badge {badge_tone}">{ico("activity", 12, "currentColor")} NIVEL {tier_label}</span>
+        <div class="plate card {tone} rise rise-1">
+            <div class="stamp" style="color:{tier_color}">{tier_label}</div>
+            <div class="card-head">
+                <span class="card-idx" style="color:{tier_color};border-color:{tier_color}55">A</span>
+                <span class="card-t">Peligrosidad · dictamen prioritario</span>
+            </div>
+            <div class="dial-wrap">
+                {dial(display_prob, tier_color)}
+                <div class="dial-side">
+                    <div class="card-value">{verdict}</div>
+                    <div class="card-note">{tier_desc}</div>
+                    <span class="pill" style="color:{tier_color}">
+                        {ico("activity", 12, tier_color)} NIVEL {tier_label}</span>
                 </div>
             </div>
             {tier_scale(display_prob, venom_threshold)}
@@ -1031,16 +1144,21 @@ with col_v:
     )
 
 with col_s:
+    grp_color = THEME["vermilion"] if known_venomous else THEME["jade"]
     html(
         f"""
-        <div class="card t-info rise rise-2">
-            <div class="card-label">{ico("dna", 13, THEME["info"])} Especie predominante</div>
-            <div class="donut-wrap">
-                {donut(species_prob, THEME["info"])}
-                <div class="donut-side">
-                    <div class="card-value" style="font-size:1.16rem">{species_name}</div>
-                    <div class="card-sub">{top_raw}</div>
-                    <span class="badge badge-info">{ico("chart", 12, "currentColor")}
+        <div class="plate card tone-info rise rise-2">
+            <div class="card-head">
+                <span class="card-idx" style="color:{THEME["steel"]};border-color:{THEME["steel"]}55">B</span>
+                <span class="card-t">Determinación taxonómica</span>
+            </div>
+            <div class="dial-wrap">
+                {dial(species_prob, THEME["steel"])}
+                <div class="dial-side">
+                    <div class="card-value">{species_name}</div>
+                    <div class="card-latin">{top_raw}</div>
+                    <span class="pill" style="color:{grp_color}">
+                        {ico("dna", 12, grp_color)}
                         {"GRUPO VENENOSO" if known_venomous else "GRUPO NO VENENOSO"}</span>
                 </div>
             </div>
@@ -1055,14 +1173,14 @@ if contradiction:
     if false_positive_risk:
         alert_box(
             "critical",
-            "Modelos contradictorios · posible falso positivo de veneno",
+            "Modelos contradictorios · posible falso positivo",
             [
                 f"La especie fue identificada como <b>{species_name}</b>, clasificada "
                 f"biológicamente como <b>no venenosa</b>, pero el detector de toxicidad "
                 f"registró un <b>{venom_prob * 100:.1f}%</b> de rasgos compatibles con veneno.",
                 "<b>Criterio de precaución extrema.</b> La morfología del ejemplar, el ángulo "
-                "de captura o las condiciones de luz pueden haber inducido error en el modelo "
-                "taxonómico o en el de toxicidad. El sistema resuelve a favor de la seguridad.",
+                "de captura o las condiciones de luz pueden haber inducido error en cualquiera "
+                "de los dos modelos. El sistema resuelve a favor de la seguridad.",
                 "<b>Recomendación:</b> trata al ejemplar como potencialmente peligroso y "
                 "mantén la distancia.",
             ],
@@ -1070,7 +1188,7 @@ if contradiction:
     else:
         alert_box(
             "warn",
-            "Modelos contradictorios · protocolo preventivo activado",
+            "Modelos contradictorios · protocolo preventivo",
             [
                 f"El detector de veneno registró un nivel bajo (<b>{venom_prob * 100:.1f}%</b>), "
                 f"pero la especie identificada es <b>{species_name}</b>, perteneciente a un grupo "
@@ -1080,67 +1198,58 @@ if contradiction:
         )
 
 # =============================================================================
-#  10 · CONSENSO DE MODELOS
+#  10 · CONSENSO
 # =============================================================================
 
-section("scan", "Consenso entre modelos", "03", THEME["violet"])
+sec("03", "Consenso entre modelos", "Auditoría")
 
-agree_color = THEME["danger"] if contradiction else THEME["accent"]
+agree_color = THEME["vermilion"] if contradiction else THEME["jade"]
 agree_text = "DISCREPANCIA" if contradiction else "CONVERGENTE"
 conf_color = (
-    THEME["accent"] if species_prob >= 0.70
-    else THEME["warning"] if species_prob >= 0.45
-    else THEME["danger"]
+    THEME["jade"] if species_prob >= 0.70
+    else THEME["amber"] if species_prob >= 0.45
+    else THEME["vermilion"]
 )
-conf_text = (
-    "ALTA" if species_prob >= 0.70 else "MEDIA" if species_prob >= 0.45 else "BAJA"
-)
+conf_text = "ALTA" if species_prob >= 0.70 else "MEDIA" if species_prob >= 0.45 else "BAJA"
 
-col_sig, col_dl = st.columns([1.6, 1], gap="large")
+col_sig, col_int = st.columns([1.55, 1], gap="large")
 
 with col_sig:
-    signals = (
-        signal_row(
-            "Detector de toxicidad",
-            f"{venom_prob * 100:.1f}% · {'POSITIVO' if is_venomous else 'NEGATIVO'}",
-            THEME["danger"] if is_venomous else THEME["accent"],
-        )
-        + signal_row(
-            "Clasificador taxonómico",
-            f"{species_prob * 100:.1f}% · CONFIANZA {conf_text}",
-            conf_color,
-        )
-        + signal_row(
-            "Grupo biológico de la especie",
-            "VENENOSO" if known_venomous else "NO VENENOSO",
-            THEME["danger"] if known_venomous else THEME["accent"],
-        )
-        + signal_row("Validación cruzada", agree_text, agree_color)
-        + signal_row(
-            "Dictamen final aplicado",
-            "PELIGROSA" if final_is_venomous else "NO PELIGROSA",
-            THEME["danger"] if final_is_venomous else THEME["accent"],
-        )
+    rows = (
+        signal(1, "Detector de toxicidad",
+               f"{venom_prob * 100:.1f}% · {'POSITIVO' if is_venomous else 'NEGATIVO'}",
+               THEME["vermilion"] if is_venomous else THEME["jade"])
+        + signal(2, "Clasificador taxonómico",
+                 f"{species_prob * 100:.1f}% · {conf_text}", conf_color)
+        + signal(3, "Grupo biológico de la especie",
+                 "VENENOSO" if known_venomous else "NO VENENOSO",
+                 THEME["vermilion"] if known_venomous else THEME["jade"])
+        + signal(4, "Validación cruzada", agree_text, agree_color)
+        + signal(5, "Dictamen final aplicado",
+                 "PELIGROSA" if final_is_venomous else "NO PELIGROSA",
+                 THEME["vermilion"] if final_is_venomous else THEME["jade"])
     )
     html(
-        f'<div class="card rise rise-1" style="border-left-color:{THEME["violet"]}">'
-        f'<div class="card-label">{ico("layers", 13, THEME["violet"])} Señales del pipeline</div>'
-        f'<div class="consensus">{signals}</div></div>'
+        f'<div class="plate card tone-plum rise rise-1"><div class="card-head">'
+        f'<span class="card-idx" style="color:{THEME["plum"]};border-color:{THEME["plum"]}55">C</span>'
+        f'<span class="card-t">Señales del pipeline</span></div>{rows}</div>'
     )
 
-with col_dl:
+with col_int:
     interp = (
         "Los dos modelos discrepan. El sistema ha aplicado el criterio más conservador "
-        "y elevado el nivel de riesgo por precaución."
+        "y ha elevado el nivel de riesgo por precaución."
         if contradiction
-        else "Ambos modelos coinciden en su dictamen, lo que refuerza la fiabilidad del "
-        "resultado. Aun así, considera el margen de error inherente a toda predicción."
+        else "Ambos modelos coinciden, lo que refuerza la fiabilidad del resultado. Aun así, "
+        "considera el margen de error inherente a toda predicción."
     )
     html(
-        f'<div class="card {"t-danger" if contradiction else "t-safe"} rise rise-2">'
-        f'<div class="card-label">{ico("info", 13, agree_color)} Interpretación</div>'
-        f'<div class="card-value" style="font-size:1.05rem;margin-bottom:10px">{agree_text}</div>'
-        f'<div style="font-size:.875rem;line-height:1.65;color:var(--muted)">{interp}</div></div>'
+        f'<div class="plate card {"tone-danger" if contradiction else "tone-safe"} rise rise-2">'
+        f'<div class="card-head">'
+        f'<span class="card-idx" style="color:{agree_color};border-color:{agree_color}55">D</span>'
+        f'<span class="card-t">Lectura</span></div>'
+        f'<div class="card-value" style="font-size:1.05rem;color:{agree_color}">{agree_text}</div>'
+        f'<div class="card-note">{interp}</div></div>'
     )
 
 # =============================================================================
@@ -1154,18 +1263,18 @@ recs = (
 )
 
 if recs:
-    section("kit", "Protocolo de primeros auxilios", "04", THEME["danger"])
+    sec("04", "Protocolo de primeros auxilios", "Emergencia")
     c_do, c_dont = st.columns(2, gap="large")
     with c_do:
-        protocol_box("do", "Acciones recomendadas", recs.get("que_hacer", []))
+        protocol_box("do", "E", "Acciones recomendadas", recs.get("que_hacer", []))
     with c_dont:
-        protocol_box("dont", "Acciones prohibidas", recs.get("nunca_hacer", []))
+        protocol_box("dont", "F", "Acciones prohibidas", recs.get("nunca_hacer", []))
 
 # =============================================================================
 #  12 · DETALLE TÉCNICO
 # =============================================================================
 
-section("layers", "Detalle técnico", "05", THEME["info"])
+sec("05", "Detalle técnico", "Anexo")
 
 tab_rank, tab_cam = st.tabs(["Ranking de especies", "Mapa de atención"])
 
@@ -1175,22 +1284,24 @@ with tab_rank:
         "por el clasificador taxonómico."
     )
     rows = []
+    total = len(top_predictions)
     for i, pred in enumerate(top_predictions, 1):
         pct = min(pred["probability"], 1.0) * 100
         rows.append(
             f'<div class="rank {"lead" if i == 1 else ""}">'
-            f'<div class="rank-idx">{i:02d}</div>'
-            f'<div class="rank-main"><div class="rank-name">{pred["spanish_name"]}</div>'
-            f'<div class="rank-lat">{pred["raw_name"]}</div></div>'
-            f'<div class="rank-viz"><div class="rank-bar"><i style="width:{pct:.2f}%"></i></div>'
-            f'<div class="rank-pct">{pct:.2f}%</div></div></div>'
+            f'<span class="rank-i">{i:02d}/{total:02d}</span>'
+            f'<span class="rank-n">{pred["spanish_name"]}</span>'
+            f'<span class="rank-l">{pred["raw_name"]}</span>'
+            f'<span class="rank-lead-dots"></span>'
+            f'<span class="rank-bar"><i style="width:{pct:.2f}%"></i></span>'
+            f'<span class="rank-p">{pct:.2f}%</span></div>'
         )
-    html("".join(rows))
+    html(f'<div class="plate card">{"".join(rows)}</div>')
 
     tail = 1.0 - sum(min(p["probability"], 1.0) for p in top_predictions)
     if tail > 0.005:
         html(
-            f'<div class="note" style="margin-top:12px">{ico("info", 15, THEME["dim"])}'
+            f'<div class="plate note" style="margin-top:12px">{ico("info", 15, THEME["dim"])}'
             f'<span>El <b>{tail * 100:.1f}%</b> restante de la masa de probabilidad se '
             f"reparte entre el resto de clases del modelo.</span></div>"
         )
@@ -1209,13 +1320,13 @@ with tab_cam:
             st.error(f"No se pudo generar el Grad-CAM: {exc}")
     else:
         html(
-            f'<div class="note" style="margin-top:12px">{ico("flame", 16, THEME["warning"])}'
+            f'<div class="plate note" style="margin-top:12px">{ico("flame", 15, THEME["amber"])}'
             f"<span>Activa <b>Generar mapa de atención (Grad-CAM)</b> en el panel de "
-            f"parámetros para desplegar la interpretabilidad visual del modelo.</span></div>"
+            f"sensibilidad para desplegar la interpretabilidad visual del modelo.</span></div>"
         )
 
 # =============================================================================
-#  13 · INFORME DESCARGABLE
+#  13 · CIERRE E INFORME
 # =============================================================================
 
 def build_report() -> str:
@@ -1234,32 +1345,36 @@ def build_report() -> str:
         else ""
     )
     return f"""<!doctype html><html lang="es"><head><meta charset="utf-8">
-<title>Informe Snakely · {ts}</title><style>
-body{{font-family:system-ui,-apple-system,'Segoe UI',sans-serif;max-width:760px;margin:40px auto;
-padding:0 22px;color:#12181F;line-height:1.65}}
+<title>Ficha Snakely · {ts}</title><style>
+body{{font-family:Georgia,'Times New Roman',serif;max-width:740px;margin:44px auto;padding:0 24px;
+color:#14181D;line-height:1.62}}
 h1{{font-size:1.5rem;margin:0 0 4px;letter-spacing:-.02em}}
-h2{{font-size:1rem;margin:30px 0 10px;text-transform:uppercase;letter-spacing:.09em;color:#5D6B80}}
-.sub{{color:#6B7787;font-size:.88rem;margin:0 0 26px}}
-.box{{border:1px solid #E2E7EE;border-left:4px solid {tier_color};border-radius:10px;
-padding:16px 20px;margin-bottom:12px}}
-.k{{font-size:.7rem;text-transform:uppercase;letter-spacing:.12em;color:#6B7787}}
-.v{{font-size:1.15rem;font-weight:700;margin-top:3px}}
-table{{width:100%;border-collapse:collapse;font-size:.9rem}}
-th,td{{text-align:left;padding:8px 6px;border-bottom:1px solid #EDF0F4}}
-th{{font-size:.7rem;text-transform:uppercase;letter-spacing:.1em;color:#6B7787}}
-ul{{margin:0;padding-left:20px}} li{{margin-bottom:5px;font-size:.92rem}}
-.warn{{background:#FFF4E5;border:1px solid #FFD9A0;border-radius:9px;padding:12px 16px;font-size:.9rem}}
-.foot{{margin-top:36px;padding-top:16px;border-top:1px solid #E2E7EE;font-size:.8rem;color:#6B7787}}
+h2{{font-size:.74rem;margin:30px 0 10px;text-transform:uppercase;letter-spacing:.17em;
+color:#8A7A5E;font-family:ui-monospace,monospace}}
+.sub{{color:#6B7280;font-size:.85rem;margin:0 0 24px;font-family:ui-monospace,monospace}}
+.rule{{height:2px;background:#14181D;margin:0 0 22px}}
+.box{{border:1px solid #DDD6C8;border-left:4px solid {tier_color};padding:15px 19px;margin-bottom:11px}}
+.k{{font-size:.63rem;text-transform:uppercase;letter-spacing:.16em;color:#8A7A5E;
+font-family:ui-monospace,monospace}}
+.v{{font-size:1.14rem;font-weight:700;margin-top:4px}}
+table{{width:100%;border-collapse:collapse;font-size:.88rem}}
+th,td{{text-align:left;padding:8px 6px;border-bottom:1px dotted #DDD6C8}}
+th{{font-size:.63rem;text-transform:uppercase;letter-spacing:.14em;color:#8A7A5E;
+font-family:ui-monospace,monospace}}
+ul{{margin:0;padding-left:20px}} li{{margin-bottom:5px;font-size:.9rem}}
+.warn{{border:1px solid #E0A458;background:#FDF6EA;padding:11px 15px;font-size:.88rem}}
+.foot{{margin-top:34px;padding-top:15px;border-top:1px solid #DDD6C8;font-size:.78rem;color:#6B7280}}
 </style></head><body>
-<h1>Informe de análisis · Snakely AI</h1>
-<p class="sub">Generado el {ts} · Archivo: {image_file.name} · Umbral: {venom_threshold:.2f}</p>
+<h1>Ficha de análisis · Snakely AI</h1>
+<p class="sub">{ts} · {image_file.name} · modo {mode.upper()} (umbral {venom_threshold:.2f})</p>
+<div class="rule"></div>
 {warn}
-<div class="box"><div class="k">Diagnóstico de peligrosidad</div>
+<div class="box"><div class="k">Dictamen de peligrosidad</div>
 <div class="v">{verdict} — nivel {tier_label}</div>
-<div style="font-size:.88rem;color:#6B7787">Índice de toxicidad: {venom_prob * 100:.1f}% · {tier_desc}</div></div>
-<div class="box" style="border-left-color:#3B9EFF"><div class="k">Especie predominante</div>
+<div style="font-size:.86rem;color:#6B7280">Índice de toxicidad: {venom_prob * 100:.1f}% · {tier_desc}</div></div>
+<div class="box" style="border-left-color:#5B9FD6"><div class="k">Determinación taxonómica</div>
 <div class="v">{species_name}</div>
-<div style="font-size:.88rem;color:#6B7787"><i>{top_raw}</i> · {species_prob * 100:.1f}% de coincidencia</div></div>
+<div style="font-size:.86rem;color:#6B7280"><i>{top_raw}</i> · {species_prob * 100:.1f}% de coincidencia</div></div>
 <h2>Ranking de especies</h2>
 <table><tr><th>#</th><th>Nombre común</th><th>Nombre científico</th><th>Prob.</th></tr>{rank_html}</table>
 <h2>Acciones recomendadas</h2><ul>{do_html or "<li>Sin recomendaciones disponibles.</li>"}</ul>
@@ -1271,22 +1386,20 @@ atención médica profesional. Ante una mordedura, acude de inmediato al centro 
 
 
 st.write("")
-col_note, col_btn = st.columns([2.2, 1], gap="large")
+col_note, col_btn = st.columns([2.3, 1], gap="large")
 
 with col_note:
     html(
-        f'<div class="note">{ico("info", 16, THEME["dim"])}'
-        f"<span><b>Aviso.</b> Los resultados son estimaciones probabilísticas generadas por "
-        f"modelos de aprendizaje profundo y pueden contener errores. No sustituyen el criterio "
-        f"de un herpetólogo ni la atención médica profesional. Ante una mordedura, acude de "
-        f"inmediato al centro de salud más cercano.</span></div>"
+        f'<div class="plate note">{ico("book", 15, THEME["ochre"])}'
+        f"<span><b>Recordatorio.</b> Este dictamen es orientativo. Ante una mordedura, acude "
+        f"de inmediato al centro de salud más cercano y no esperes a confirmar la especie.</span></div>"
     )
 
 with col_btn:
     st.download_button(
-        "⤓  Descargar informe (HTML)",
+        "Descargar ficha (HTML)",
         data=build_report(),
-        file_name=f"snakely_informe_{datetime.now():%Y%m%d_%H%M}.html",
+        file_name=f"snakely_ficha_{datetime.now():%Y%m%d_%H%M}.html",
         mime="text/html",
         use_container_width=True,
     )
