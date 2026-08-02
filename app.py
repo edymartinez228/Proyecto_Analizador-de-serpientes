@@ -200,7 +200,7 @@ h1, h2, h3, h4, h5, h6 { color: var(--text) !important; letter-spacing: -0.02em;
     background:
         linear-gradient(155deg, rgba(16,224,152,0.09) 0%, rgba(16,22,31,0.9) 42%, rgba(16,22,31,0.98) 100%);
     padding: 34px 38px;
-    margin-bottom: 8px;
+    margin-bottom: 16px;
 }
 .hero::before {
     content: ""; position: absolute; inset: 0; pointer-events: none;
@@ -250,6 +250,27 @@ h1, h2, h3, h4, h5, h6 { color: var(--text) !important; letter-spacing: -0.02em;
     padding: 7px 13px; border-radius: 999px;
 }
 .chip b { color: var(--text); font-weight: 600; }
+
+/* ------------------------------------------------------------- advertencia --- */
+/* Banner de aviso legal. Va justo tras el hero, visible antes de cualquier
+   resultado, para que el usuario lo lea desde el primer segundo. */
+.advisory {
+    display: flex; gap: 16px; align-items: flex-start;
+    border-radius: var(--radius); padding: 18px 22px; margin-bottom: 26px;
+    border: 1px solid rgba(255,176,32,0.32);
+    background: linear-gradient(120deg, rgba(255,176,32,0.09) 0%, rgba(16,22,31,0.4) 60%);
+}
+.advisory-ico {
+    flex-shrink: 0; width: 34px; height: 34px; border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(255,176,32,0.14);
+}
+.advisory-t {
+    font-size: 0.68rem; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase;
+    color: #FFCC70; margin-bottom: 6px;
+}
+.advisory-d { font-size: 0.87rem; line-height: 1.62; color: var(--muted); }
+.advisory-d b { color: var(--text); font-weight: 600; }
 
 /* ------------------------------------------------------------ secciones --- */
 .section { display: flex; align-items: center; gap: 11px; margin: 38px 0 16px; }
@@ -439,6 +460,16 @@ h1, h2, h3, h4, h5, h6 { color: var(--text) !important; letter-spacing: -0.02em;
 }
 .note b { color: var(--muted); font-weight: 600; }
 
+/* -------------------------------------------------------- umbral en vivo --- */
+/* Texto dinámico bajo el slider: traduce el número a lenguaje llano para que
+   quede claro qué controla el umbral de decisión. */
+.threshold-live {
+    margin-top: 12px; padding: 11px 13px;
+    background: rgba(148,163,184,0.05); border: 1px dashed var(--border-hi);
+    border-radius: var(--radius-sm); font-size: 0.78rem; line-height: 1.55; color: var(--muted);
+}
+.threshold-live b { color: var(--text); font-weight: 600; }
+
 /* ------------------------------------------------- widgets de streamlit --- */
 [data-testid="stFileUploader"] section {
     background: var(--surface); border: 1.5px dashed rgba(148,163,184,0.22);
@@ -517,6 +548,7 @@ hr { border-color: var(--border) !important; }
     .rank-viz { width: 26%; }
 }
 """
+
 
 def minify_css(css: str) -> str:
     """Comprime el CSS a una sola línea.
@@ -828,6 +860,27 @@ html(
     """
 )
 
+# --- AVISO LEGAL: arriba del todo, antes de subir cualquier imagen -----------
+# Se muestra siempre, no solo en el estado vacío, para que sea lo primero que
+# se lee al entrar a la aplicación.
+html(
+    f"""
+    <div class="advisory rise rise-1">
+        <div class="advisory-ico">{ico("alert", 18, THEME["warning"])}</div>
+        <div>
+            <div class="advisory-t">Léelo antes de continuar</div>
+            <div class="advisory-d">
+                Los resultados son <b>estimaciones probabilísticas</b> generadas por modelos de
+                aprendizaje profundo y pueden contener errores. No sustituyen el criterio de un
+                herpetólogo ni la atención médica profesional.
+                <b>Ante una mordedura, acude de inmediato al centro de salud más cercano</b> —
+                no esperes a confirmar la especie con esta herramienta.
+            </div>
+        </div>
+    </div>
+    """
+)
+
 # =============================================================================
 #  7 · ENTRADA Y PARÁMETROS
 # =============================================================================
@@ -846,7 +899,7 @@ with col_cfg:
     with st.container(border=True):
         html(
             f'<div class="card-label" style="margin-bottom:10px">'
-            f'{ico("sliders", 13, THEME["info"])} Parámetros de inferencia</div>'
+            f'{ico("sliders", 13, THEME["info"])} Sensibilidad del sistema</div>'
         )
         venom_threshold = st.slider(
             "Umbral de decisión de toxicidad",
@@ -854,8 +907,25 @@ with col_cfg:
             max_value=0.70,
             value=0.50,
             step=0.05,
-            help="Un umbral más bajo hace al sistema más conservador: marcará como "
-            "peligrosos más ejemplares, a costa de más falsos positivos.",
+            help="El detector de veneno no da un sí/no: da un porcentaje de indicios "
+            "de toxicidad. Este control decide a partir de qué porcentaje ese número "
+            "se traduce en la alerta de 'venenosa'.",
+        )
+        # Texto en vivo: traduce el número del slider a lenguaje llano, para que
+        # quede claro qué controla exactamente (no todo el mundo lee el help del ?).
+        if venom_threshold <= 0.35:
+            stance = "muy conservador"
+            trade_off = "avisará con más facilidad, a costa de más falsas alarmas"
+        elif venom_threshold <= 0.55:
+            stance = "equilibrado"
+            trade_off = "es el punto medio recomendado para uso general"
+        else:
+            stance = "estricto"
+            trade_off = "solo avisará ante indicios claros, con más riesgo de pasar por alto una venenosa"
+        html(
+            f'<div class="threshold-live">Con <b>{venom_threshold * 100:.0f}%</b>, el sistema '
+            f'marcará un ejemplar como <b>peligroso</b> en cuanto el detector de veneno supere ese '
+            f'porcentaje de indicios. Es un ajuste <b>{stance}</b>: {trade_off}.</div>'
         )
         show_gradcam = st.checkbox("Generar mapa de atención (Grad-CAM)", value=True)
 
@@ -890,7 +960,7 @@ if image_file is None:
     with c_steps:
         steps = [
             ("Sube la fotografía", "Formatos JPG, PNG o JPEG. Se corrige automáticamente la orientación EXIF."),
-            ("Ajusta el umbral", "Baja el umbral si prefieres un criterio más conservador."),
+            ("Ajusta la sensibilidad", "Baja el umbral si prefieres un criterio más conservador."),
             ("Revisa el dictamen", "Índice de toxicidad, especie predominante y consenso entre modelos."),
             ("Consulta el protocolo", "Acciones recomendadas y prohibidas ante una mordedura."),
         ]
@@ -917,13 +987,6 @@ if image_file is None:
              f'<div class="proto-head">{ico("eye", 17, THEME["accent"])}'
              f'<span>Cómo obtener mejores resultados</span></div><ul>{lis}</ul></div>')
 
-    st.write("")
-    html(
-        f'<div class="note rise rise-4">{ico("info", 16, THEME["info"])}'
-        f"<span><b>Uso responsable.</b> Snakely es una herramienta de apoyo a la decisión "
-        f"y no sustituye el criterio de un herpetólogo ni la atención médica profesional. "
-        f"Ante una mordedura, acude de inmediato al centro de salud más cercano.</span></div>"
-    )
     st.stop()
 
 # =============================================================================
@@ -1211,7 +1274,7 @@ with tab_cam:
         html(
             f'<div class="note" style="margin-top:12px">{ico("flame", 16, THEME["warning"])}'
             f"<span>Activa <b>Generar mapa de atención (Grad-CAM)</b> en el panel de "
-            f"parámetros para desplegar la interpretabilidad visual del modelo.</span></div>"
+            f"sensibilidad para desplegar la interpretabilidad visual del modelo.</span></div>"
         )
 
 # =============================================================================
@@ -1276,10 +1339,8 @@ col_note, col_btn = st.columns([2.2, 1], gap="large")
 with col_note:
     html(
         f'<div class="note">{ico("info", 16, THEME["dim"])}'
-        f"<span><b>Aviso.</b> Los resultados son estimaciones probabilísticas generadas por "
-        f"modelos de aprendizaje profundo y pueden contener errores. No sustituyen el criterio "
-        f"de un herpetólogo ni la atención médica profesional. Ante una mordedura, acude de "
-        f"inmediato al centro de salud más cercano.</span></div>"
+        f"<span><b>Recordatorio.</b> Este dictamen es orientativo y puede contener errores. "
+        f"Ante una mordedura, acude de inmediato al centro de salud más cercano.</span></div>"
     )
 
 with col_btn:
