@@ -23,6 +23,7 @@ import base64
 import io
 import os
 import pathlib
+import re
 import time
 from datetime import datetime
 
@@ -517,12 +518,29 @@ hr { border-color: var(--border) !important; }
 }
 """
 
-st.markdown(
+def minify_css(css: str) -> str:
+    """Comprime el CSS a una sola línea.
+
+    Es imprescindible: el parser de markdown de Streamlit cierra un bloque HTML
+    en cuanto encuentra una línea en blanco, de modo que un <style> con saltos
+    de línea acaba imprimiéndose como texto plano en la página.
+    """
+    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)          # comentarios
+    css = re.sub(r"\s+", " ", css)                            # saltos y sangrías
+    css = re.sub(r"\s*([{}:;,>])\s*", r"\1", css)             # espacio alrededor de símbolos
+    css = re.sub(r";}", "}", css)                             # último punto y coma
+    return css.strip()
+
+
+_FONTS = (
     '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
     '<link href="https://fonts.googleapis.com/css2?'
     "family=Inter:wght@400;500;600;700;800&"
     'family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">'
-    f"<style>{_ROOT_VARS}{_CSS}</style>",
+)
+
+st.markdown(
+    _FONTS + f"<style>{minify_css(_ROOT_VARS + _CSS)}</style>",
     unsafe_allow_html=True,
 )
 
@@ -592,7 +610,13 @@ def ico(name: str, size: int = 18, color: str = "currentColor", w: float = 1.8) 
 # =============================================================================
 
 def html(markup: str) -> None:
-    st.markdown(markup, unsafe_allow_html=True)
+    """Inyecta HTML en una sola línea.
+
+    Streamlit pasa el markup por un renderizador de markdown: cualquier línea
+    en blanco rompe el bloque HTML y el resto se muestra como texto. Colapsar
+    los saltos de línea evita ese fallo en todos los componentes.
+    """
+    st.markdown(re.sub(r"\s*\n\s*", " ", markup).strip(), unsafe_allow_html=True)
 
 
 def section(icon_name: str, title: str, num: str = "", color: str = THEME["accent"]) -> None:
