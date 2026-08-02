@@ -148,6 +148,9 @@ _ROOT_VARS = f"""
     --radius: 16px;
     --radius-sm: 11px;
     --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.24), 0 8px 20px -12px rgba(0,0,0,0.5);
+    --shadow-md: 0 2px 6px rgba(0,0,0,0.28), 0 16px 36px -16px rgba(0,0,0,0.6);
+    --shadow-lg: 0 4px 12px rgba(0,0,0,0.32), 0 28px 60px -20px rgba(0,0,0,0.65);
 }}
 """
 
@@ -201,6 +204,7 @@ h1, h2, h3, h4, h5, h6 { color: var(--text) !important; letter-spacing: -0.02em;
         linear-gradient(155deg, rgba(16,224,152,0.09) 0%, rgba(16,22,31,0.9) 42%, rgba(16,22,31,0.98) 100%);
     padding: 34px 38px;
     margin-bottom: 16px;
+    box-shadow: var(--shadow-lg);
 }
 .hero::before {
     content: ""; position: absolute; inset: 0; pointer-events: none;
@@ -248,22 +252,31 @@ h1, h2, h3, h4, h5, h6 { color: var(--text) !important; letter-spacing: -0.02em;
     background: rgba(148,163,184,0.06);
     border: 1px solid var(--border);
     padding: 7px 13px; border-radius: 999px;
+    transition: border-color .18s ease, background .18s ease;
 }
+.chip:hover { border-color: var(--border-hi); background: rgba(148,163,184,0.1); }
 .chip b { color: var(--text); font-weight: 600; }
 
 /* ------------------------------------------------------------- advertencia --- */
 /* Banner de aviso legal. Va justo tras el hero, visible antes de cualquier
    resultado, para que el usuario lo lea desde el primer segundo. */
 .advisory {
+    position: relative; overflow: hidden;
     display: flex; gap: 16px; align-items: flex-start;
-    border-radius: var(--radius); padding: 18px 22px; margin-bottom: 26px;
+    border-radius: var(--radius); padding: 18px 22px 18px 25px; margin-bottom: 26px;
     border: 1px solid rgba(255,176,32,0.32);
     background: linear-gradient(120deg, rgba(255,176,32,0.09) 0%, rgba(16,22,31,0.4) 60%);
+    box-shadow: var(--shadow-sm);
+}
+.advisory::before {
+    content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+    background: linear-gradient(180deg, var(--warning), #FF8A3D);
 }
 .advisory-ico {
     flex-shrink: 0; width: 34px; height: 34px; border-radius: 10px;
     display: flex; align-items: center; justify-content: center;
     background: rgba(255,176,32,0.14);
+    box-shadow: inset 0 0 0 1px rgba(255,176,32,0.22);
 }
 .advisory-t {
     font-size: 0.68rem; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase;
@@ -273,14 +286,18 @@ h1, h2, h3, h4, h5, h6 { color: var(--text) !important; letter-spacing: -0.02em;
 .advisory-d b { color: var(--text); font-weight: 600; }
 
 /* ------------------------------------------------------------ secciones --- */
-.section { display: flex; align-items: center; gap: 11px; margin: 38px 0 16px; }
-.section .ttl { font-size: 1.06rem; font-weight: 700; letter-spacing: -0.018em; color: var(--text); }
+.section { display: flex; align-items: center; gap: 12px; margin: 42px 0 18px; }
+.section .dot {
+    width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+    box-shadow: 0 0 0 3px currentColor, 0 0 10px currentColor; opacity: 0.9;
+}
+.section .ttl { font-size: 1.08rem; font-weight: 700; letter-spacing: -0.018em; color: var(--text); }
 .section .num {
     font-family: var(--mono); font-size: 0.68rem; font-weight: 600;
     color: var(--dim); background: rgba(148,163,184,0.08);
     border: 1px solid var(--border); padding: 2px 7px; border-radius: 6px;
 }
-.section .rule { flex: 1; height: 1px; background: linear-gradient(90deg, var(--border-hi), transparent); }
+.section .rule { flex: 1; height: 1px; background: linear-gradient(90deg, var(--border-hi), var(--border) 60%, transparent); }
 
 /* ------------------------------------------------------------- tarjetas --- */
 .card {
@@ -289,13 +306,14 @@ h1, h2, h3, h4, h5, h6 { color: var(--text) !important; letter-spacing: -0.02em;
     border: 1px solid var(--border);
     border-radius: var(--radius);
     padding: 24px 26px;
-    transition: border-color .22s ease, transform .22s ease;
+    box-shadow: var(--shadow-sm);
+    transition: border-color .22s ease, transform .22s ease, box-shadow .22s ease;
 }
-.card:hover { border-color: var(--border-hi); }
-.card::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--info); }
-.card.t-danger::before { background: var(--danger); }
-.card.t-safe::before   { background: linear-gradient(180deg, var(--accent), #0B9E6E); }
-.card.t-warn::before   { background: var(--warning); }
+.card:hover { border-color: var(--border-hi); transform: translateY(-2px); box-shadow: var(--shadow-md); }
+.card::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--info); box-shadow: 0 0 10px 0 rgba(59,158,255,0.65); }
+.card.t-danger::before { background: var(--danger); box-shadow: 0 0 10px 0 rgba(255,77,94,0.6); }
+.card.t-safe::before   { background: linear-gradient(180deg, var(--accent), #0B9E6E); box-shadow: 0 0 10px 0 rgba(16,224,152,0.6); }
+.card.t-warn::before   { background: var(--warning); box-shadow: 0 0 10px 0 rgba(255,176,32,0.6); }
 .card.t-danger { background: linear-gradient(140deg, rgba(255,77,94,0.09) 0%, var(--surface) 62%); }
 .card.t-safe   { background: linear-gradient(140deg, rgba(16,224,152,0.08) 0%, var(--surface) 62%); }
 .card.t-info   { background: linear-gradient(140deg, rgba(59,158,255,0.08) 0%, var(--surface) 62%); }
@@ -313,16 +331,16 @@ h1, h2, h3, h4, h5, h6 { color: var(--text) !important; letter-spacing: -0.02em;
     font-family: var(--mono); font-size: 0.72rem; font-weight: 600;
     padding: 5px 11px; border-radius: 999px; margin-top: 12px;
 }
-.badge-danger { background: rgba(255,77,94,0.13); color: #FF95A0; border: 1px solid rgba(255,77,94,0.3); }
-.badge-safe   { background: rgba(16,224,152,0.12); color: #63EDBD; border: 1px solid rgba(16,224,152,0.3); }
-.badge-warn   { background: rgba(255,176,32,0.13); color: #FFCC70; border: 1px solid rgba(255,176,32,0.3); }
-.badge-info   { background: rgba(59,158,255,0.12); color: #8AC7FF; border: 1px solid rgba(59,158,255,0.3); }
+.badge-danger { background: rgba(255,77,94,0.13); color: #FF95A0; border: 1px solid rgba(255,77,94,0.3); box-shadow: 0 2px 8px -4px rgba(255,77,94,0.5); }
+.badge-safe   { background: rgba(16,224,152,0.12); color: #63EDBD; border: 1px solid rgba(16,224,152,0.3); box-shadow: 0 2px 8px -4px rgba(16,224,152,0.5); }
+.badge-warn   { background: rgba(255,176,32,0.13); color: #FFCC70; border: 1px solid rgba(255,176,32,0.3); box-shadow: 0 2px 8px -4px rgba(255,176,32,0.5); }
+.badge-info   { background: rgba(59,158,255,0.12); color: #8AC7FF; border: 1px solid rgba(59,158,255,0.3); box-shadow: 0 2px 8px -4px rgba(59,158,255,0.5); }
 
 /* ----------------------------------------------------------- donut svg --- */
 .donut-wrap { display: flex; align-items: center; gap: 24px; }
 .donut { position: relative; flex-shrink: 0; }
-.donut svg { display: block; transform: rotate(-90deg); }
-.donut .arc { animation: dash 1.1s cubic-bezier(.22,1,.36,1) both; }
+.donut svg { display: block; transform: rotate(-90deg); overflow: visible; }
+.donut .arc { animation: dash 1.1s cubic-bezier(.22,1,.36,1) both; filter: drop-shadow(0 0 6px currentColor); opacity: 0.96; }
 .donut-center {
     position: absolute; inset: 0; display: flex; flex-direction: column;
     align-items: center; justify-content: center; gap: 1px;
@@ -344,17 +362,22 @@ h1, h2, h3, h4, h5, h6 { color: var(--text) !important; letter-spacing: -0.02em;
 
 /* -------------------------------------------------------------- alertas --- */
 .alert {
+    position: relative; overflow: hidden;
     display: flex; gap: 16px; align-items: flex-start;
-    border-radius: var(--radius); padding: 22px 24px; border: 1px solid;
+    border-radius: var(--radius); padding: 22px 24px 22px 27px; border: 1px solid;
+    box-shadow: var(--shadow-md);
 }
+.alert::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; }
 .alert-critical { background: rgba(255,77,94,0.07); border-color: rgba(255,77,94,0.34); animation: pulse-ring 2.6s ease-out 3; }
+.alert-critical::before { background: var(--danger); box-shadow: 0 0 10px 0 rgba(255,77,94,0.6); }
 .alert-warn     { background: rgba(255,176,32,0.07); border-color: rgba(255,176,32,0.34); }
+.alert-warn::before { background: var(--warning); box-shadow: 0 0 10px 0 rgba(255,176,32,0.6); }
 .alert-ico {
     flex-shrink: 0; width: 38px; height: 38px; border-radius: 11px;
     display: flex; align-items: center; justify-content: center;
 }
-.alert-critical .alert-ico { background: rgba(255,77,94,0.13); }
-.alert-warn .alert-ico { background: rgba(255,176,32,0.13); }
+.alert-critical .alert-ico { background: rgba(255,77,94,0.13); box-shadow: inset 0 0 0 1px rgba(255,77,94,0.24); }
+.alert-warn .alert-ico { background: rgba(255,176,32,0.13); box-shadow: inset 0 0 0 1px rgba(255,176,32,0.24); }
 .alert-title { font-size: 0.7rem; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; margin-bottom: 10px; }
 .alert-critical .alert-title { color: #FF95A0; }
 .alert-warn .alert-title { color: #FFCC70; }
@@ -375,7 +398,7 @@ h1, h2, h3, h4, h5, h6 { color: var(--text) !important; letter-spacing: -0.02em;
 .sig-val { font-family: var(--mono); font-size: 0.78rem; font-weight: 600; }
 
 /* ------------------------------------------------------------ protocolo --- */
-.proto { border-radius: var(--radius); padding: 24px 26px; height: 100%; border: 1px solid; }
+.proto { border-radius: var(--radius); padding: 24px 26px; height: 100%; border: 1px solid; box-shadow: var(--shadow-sm); }
 .proto-do   { background: rgba(16,224,152,0.045); border-color: rgba(16,224,152,0.28); }
 .proto-dont { background: rgba(255,77,94,0.045); border-color: rgba(255,77,94,0.28); }
 .proto-head {
@@ -398,10 +421,11 @@ h1, h2, h3, h4, h5, h6 { color: var(--text) !important; letter-spacing: -0.02em;
     display: flex; align-items: center; gap: 18px;
     padding: 14px 18px; border-radius: var(--radius-sm);
     background: var(--surface); border: 1px solid var(--border); margin-bottom: 8px;
-    transition: border-color .2s ease, background .2s ease;
+    box-shadow: var(--shadow-sm);
+    transition: border-color .2s ease, background .2s ease, transform .2s ease;
 }
-.rank:hover { border-color: var(--border-hi); background: var(--surface-2); }
-.rank.lead { border-color: rgba(59,158,255,0.34); background: rgba(59,158,255,0.055); }
+.rank:hover { border-color: var(--border-hi); background: var(--surface-2); transform: translateX(2px); }
+.rank.lead { border-color: rgba(59,158,255,0.34); background: rgba(59,158,255,0.055); box-shadow: var(--shadow-sm), 0 0 0 1px rgba(59,158,255,0.12) inset; }
 .rank-idx {
     width: 28px; height: 28px; border-radius: 9px; flex-shrink: 0;
     display: flex; align-items: center; justify-content: center;
@@ -422,12 +446,14 @@ h1, h2, h3, h4, h5, h6 { color: var(--text) !important; letter-spacing: -0.02em;
 .feat {
     background: var(--surface); border: 1px solid var(--border);
     border-radius: var(--radius); padding: 24px; height: 100%;
-    transition: border-color .22s ease, transform .22s ease;
+    box-shadow: var(--shadow-sm);
+    transition: border-color .22s ease, transform .22s ease, box-shadow .22s ease;
 }
-.feat:hover { border-color: var(--border-hi); transform: translateY(-2px); }
+.feat:hover { border-color: var(--border-hi); transform: translateY(-3px); box-shadow: var(--shadow-md); }
 .feat-ico {
     width: 40px; height: 40px; border-radius: 12px; margin-bottom: 16px;
     display: flex; align-items: center; justify-content: center;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06);
 }
 .feat-t { font-size: 0.96rem; font-weight: 700; color: var(--text); margin-bottom: 7px; letter-spacing: -0.015em; }
 .feat-d { font-size: 0.855rem; line-height: 1.6; color: var(--muted); }
@@ -439,8 +465,10 @@ h1, h2, h3, h4, h5, h6 { color: var(--text) !important; letter-spacing: -0.02em;
     width: 26px; height: 26px; border-radius: 8px; flex-shrink: 0;
     display: flex; align-items: center; justify-content: center;
     font-family: var(--mono); font-size: 0.7rem; font-weight: 700;
-    background: rgba(16,224,152,0.11); color: var(--accent);
+    background: linear-gradient(155deg, rgba(16,224,152,0.18), rgba(16,224,152,0.06));
+    color: var(--accent);
     border: 1px solid rgba(16,224,152,0.24);
+    box-shadow: 0 2px 6px -2px rgba(16,224,152,0.35);
 }
 .step-t { font-size: 0.9rem; font-weight: 600; color: var(--text); }
 .step-d { font-size: 0.83rem; color: var(--muted); margin-top: 3px; line-height: 1.55; }
@@ -464,9 +492,10 @@ h1, h2, h3, h4, h5, h6 { color: var(--text) !important; letter-spacing: -0.02em;
 /* Texto dinámico bajo el slider: traduce el número a lenguaje llano para que
    quede claro qué controla el umbral de decisión. */
 .threshold-live {
-    margin-top: 12px; padding: 11px 13px;
-    background: rgba(148,163,184,0.05); border: 1px dashed var(--border-hi);
+    position: relative; margin-top: 12px; padding: 11px 13px 11px 16px;
+    background: rgba(148,163,184,0.05); border: 1px dashed var(--border-hi); border-left-style: solid;
     border-radius: var(--radius-sm); font-size: 0.78rem; line-height: 1.55; color: var(--muted);
+    transition: border-color .2s ease;
 }
 .threshold-live b { color: var(--text); font-weight: 600; }
 
@@ -523,10 +552,13 @@ h1, h2, h3, h4, h5, h6 { color: var(--text) !important; letter-spacing: -0.02em;
     background: rgba(148,163,184,0.07) !important; border: 1px solid var(--border-hi) !important;
     color: var(--muted) !important; border-radius: 10px !important;
     font-size: 0.83rem !important; font-weight: 600 !important;
+    transition: all .2s ease !important;
 }
 [data-testid="stDownloadButton"] button:hover {
-    border-color: rgba(16,224,152,0.45) !important; color: var(--accent) !important;
-    background: rgba(16,224,152,0.07) !important;
+    border-color: rgba(16,224,152,0.5) !important; color: var(--accent) !important;
+    background: rgba(16,224,152,0.09) !important;
+    box-shadow: 0 0 0 1px rgba(16,224,152,0.25), 0 6px 18px -6px rgba(16,224,152,0.35) !important;
+    transform: translateY(-1px);
 }
 
 [data-baseweb="tooltip"], [data-baseweb="popover"] > div {
@@ -654,7 +686,8 @@ def html(markup: str) -> None:
 def section(icon_name: str, title: str, num: str = "", color: str = THEME["accent"]) -> None:
     tag = f'<span class="num">{num}</span>' if num else ""
     html(
-        f'<div class="section">{ico(icon_name, 17, color)}'
+        f'<div class="section"><span class="dot" style="color:{color}"></span>'
+        f'{ico(icon_name, 17, color)}'
         f'<span class="ttl">{title}</span>{tag}<span class="rule"></span></div>'
     )
 
@@ -673,7 +706,7 @@ def donut(prob: float, color: str, radius: int = 54, stroke: int = 9) -> str:
         f'<circle class="arc" cx="{c}" cy="{c}" r="{radius}" fill="none" stroke="{color}" '
         f'stroke-width="{stroke}" stroke-linecap="round" '
         f'stroke-dasharray="{circ:.2f}" stroke-dashoffset="{offset:.2f}" '
-        f'style="--circ:{circ:.2f}px"/></svg>'
+        f'style="--circ:{circ:.2f}px;color:{color}"/></svg>'
         f'<div class="donut-center">'
         f'<div class="donut-pct" style="color:{color}">{prob * 100:.0f}<span style="font-size:.8rem">%</span></div>'
         f'<div class="donut-cap">ÍNDICE</div></div></div>'
@@ -913,19 +946,21 @@ with col_cfg:
         )
         # Texto en vivo: traduce el número del slider a lenguaje llano, para que
         # quede claro qué controla exactamente (no todo el mundo lee el help del ?).
+        # El color del acento acompaña la postura (verde=conservador, ámbar=medio, azul=estricto).
         if venom_threshold <= 0.35:
-            stance = "muy conservador"
+            stance, stance_color = "muy conservador", THEME["accent"]
             trade_off = "avisará con más facilidad, a costa de más falsas alarmas"
         elif venom_threshold <= 0.55:
-            stance = "equilibrado"
+            stance, stance_color = "equilibrado", THEME["warning"]
             trade_off = "es el punto medio recomendado para uso general"
         else:
-            stance = "estricto"
+            stance, stance_color = "estricto", THEME["info"]
             trade_off = "solo avisará ante indicios claros, con más riesgo de pasar por alto una venenosa"
         html(
-            f'<div class="threshold-live">Con <b>{venom_threshold * 100:.0f}%</b>, el sistema '
-            f'marcará un ejemplar como <b>peligroso</b> en cuanto el detector de veneno supere ese '
-            f'porcentaje de indicios. Es un ajuste <b>{stance}</b>: {trade_off}.</div>'
+            f'<div class="threshold-live" style="border-left-color:{stance_color}">Con '
+            f'<b>{venom_threshold * 100:.0f}%</b>, el sistema marcará un ejemplar como <b>peligroso</b> '
+            f'en cuanto el detector de veneno supere ese porcentaje de indicios. Es un ajuste '
+            f'<b style="color:{stance_color}">{stance}</b>: {trade_off}.</div>'
         )
         show_gradcam = st.checkbox("Generar mapa de atención (Grad-CAM)", value=True)
 
